@@ -5,10 +5,19 @@
 #include <stdlib.h>
 #include <string.h>
 
-// #include "include/common/log.h"
-#include <fde/common/log.h>
+#include <wlr/util/log.h>
+#include <wlr/version.h>
 
-// #define FDE_VERSION = "1.01"
+#include <fde/compositor/compositor.h>
+#include <fde/util/log.h>
+
+static int exit_value = 0;
+struct fde_server server = {0};
+struct fde_debug debug = {0};
+
+void fde_terminate(int exit_code) {
+	
+}
 
 static const struct option long_options[] = {
     {"help", no_argument, NULL, 'h'},
@@ -32,18 +41,90 @@ static const char usage[] =
 	"\n"
 ;
 
+
+static void log_env(void) {
+	const char *log_vars[] = {
+		"LD_LIBRARY_PATH",
+		"LD_PRELOAD",
+		"PATH",
+		"FDE SOCKET",
+	};
+	for (size_t i = 0; i < sizeof(log_vars) / sizeof(char *); ++i) {
+		char *value = getenv(log_vars[i]);
+		fde_log(FDE_INFO, "%s=%s", log_vars[i], value != NULL ? value : "");
+	}
+}
+
+static void log_file(FILE *f) {
+	char *line = NULL;
+	size_t line_size = 0;
+	ssize_t nread;
+	while ((nread = getline(&line, &line_size, f)) != -1) {
+		if (line[nread - 1] == '\n') {
+			line[nread - 1] = '\0';
+		}
+		fde_log(FDE_INFO, "%s", line);
+	}
+	free(line);
+}
+
+static void log_distro(void) {
+	const char *paths[] = {
+		"/etc/lsb-release",
+		"/etc/os-release",
+		"/etc/debian_version",
+		"/etc/redhat-release",
+		"/etc/gentoo-release",
+	};
+	for (size_t i = 0; i < sizeof(paths) / sizeof(char *); ++i) {
+		FILE *f = fopen(paths[i], "r");
+		if (f) {
+			fde_log(FDE_INFO, "Contents of %s:", paths[i]);
+			log_file(f);
+			fclose(f);
+		}
+	}
+}
+
+static void log_kernel(void) {
+	FILE *f = popen("uname -a", "r");
+	if (!f) {
+		fde_log(FDE_INFO, "Unable to determine kernel version");
+		return;
+	}
+	log_file(f);
+	pclose(f);
+}
+
 void enable_debug_flag(const char *flag) {
-// 	if (strcmp(flag, "noatomic") == 0) {
-// 		debug.noatomic = true;
-// 	} else if (strcmp(flag, "txn-wait") == 0) {
-// 		debug.txn_wait = true;
-// 	} else if (strcmp(flag, "txn-timings") == 0) {
-// 		debug.txn_timings = true;
-// 	} else if (has_prefix(flag, "txn-timeout=")) {
-// 		server.txn_timeout_ms = atoi(&flag[strlen("txn-timeout=")]);
-// 	} else {
-// 		fde_log(FDE_ERROR, "Unknown debug flag: %s", flag);
-// 	}
+	if (strcmp(flag, "noatomic") == 0) {
+		debug.noatomic = true;
+	} else if (strcmp(flag, "txn-wait") == 0) {
+		debug.txn_wait = true;
+	} else if (strcmp(flag, "txn-timings") == 0) {
+		debug.txn_timings = true;
+	// } else if (has_prefix(flag, "txn-timeout=")) {
+	// 	server.txn_timeout_ms = atoi(&flag[strlen("txn-timeout=")]);
+	} else {
+		fde_log(FDE_ERROR, "Unknown debug flag: %s", flag);
+	}
+}
+
+static fde_log_importance_t convert_wlr_log_importance(enum wlr_log_importance importance) {
+	switch (importance) {
+	case WLR_ERROR:
+		return FDE_ERROR;
+	case WLR_INFO:
+		return FDE_INFO;
+	default:
+		return FDE_DEBUG;
+	}
+}
+
+static void handle_wlr_log(enum wlr_log_importance importance, const char *fmt, va_list args) {
+	static char sway_fmt[1024];
+	snprintf(sway_fmt, sizeof(sway_fmt), "[wlr] %s", fmt);
+	_fde_vlog(convert_wlr_log_importance(importance), sway_fmt, args);
 }
 
 int main(int argc, char *argv[]) {
@@ -77,7 +158,7 @@ int main(int argc, char *argv[]) {
 			enable_debug_flag(optarg);
 			break;
 		case 'v': // version
-			printf("fde version %s \n", "1.13");
+			printf("fde version %s \n", FDE_VERSION);
 			exit(EXIT_SUCCESS);
 			break;
 		case 'V': // verbose
@@ -89,5 +170,36 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-    return 0;
+	if (debug) {
+		fde_log_init(FDE_DEBUG, fde_terminate);
+		wlr_log_init(WLR_DEBUG, handle_wlr_log);
+	} else if (verbose) {
+		fde_log_init(FDE_INFO, fde_terminate);
+		wlr_log_init(WLR_INFO, handle_wlr_log);
+	} else {
+		fde_log_init(FDE_ERROR, fde_terminate);
+		wlr_log_init(WLR_ERROR, handle_wlr_log);
+	}
+
+	fde_log(FDE_INFO, "FDE version " FDE_VERSION);
+	fde_log(FDE_INFO, "wlroots version " WLR_VERSION_STR);
+	log_kernel();
+	log_distro();
+	log_env();
+
+	if (!server_init(&server)) {
+		return 1;
+	}
+
+	if (!server_start(&server)) {
+		fde_terminate(EXIT_FAILURE);
+		goto shutdown;
+	}
+
+	server_run(&server);
+
+shutdown:
+	fde_log(FDE_INFO, "Shutting down FDE");
+
+	return exit_value;
 }

@@ -1,11 +1,8 @@
 #pragma once
 
-#ifndef _FDE_LOG_H
-#define _FDE_LOG_H
-
 #include <stdbool.h>
 #include <stdarg.h>
-#include <string.h>
+// #include <string.h>
 #include <errno.h>
 
 typedef enum {
@@ -52,7 +49,4 @@ bool _fde_assert(bool condition, const char* format, ...) ATTRIB_PRINTF(2, 3);
 #define fde_abort(FMT, ...) \
 	_fde_abort("[%s:%d] " FMT, _FDE_FILENAME, __LINE__, ##__VA_ARGS__)
 
-#define fde_assert(COND, FMT, ...) \
-	_fde_assert(COND, "[%s:%d] %s:" FMT, _FDE_FILENAME, __LINE__, __PRETTY_FUNCTION__, ##__VA_ARGS__)
-
-#endif
+#define fde_assert(COND, FMT, ...) _fde_assert(COND, "[%s:%d] %s:" FMT, _FDE_FILENAME, __LINE__, __PRETTY_FUNCTION__, ##__VA_ARGS__)

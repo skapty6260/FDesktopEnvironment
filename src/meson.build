@@ -1,5 +1,7 @@
 sources = files(
-    'main.c'
+    'main.c',
+    'compositor/compositor.c',
+    'util/log.c'
 )
 
 wlroots = dependency('wlroots-0.20', version: wlroots_version)
