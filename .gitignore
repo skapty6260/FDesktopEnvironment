@@ -1,0 +1,6 @@
+.directory
+.vscode
+.cache
+plugins/*/build
+plugins/*/cache
+build
