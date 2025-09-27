@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fde/config.h>
 #include <fde/compositor.h>
 
 #include <stdbool.h>
@@ -25,3 +26,5 @@ typedef struct plugin_instance {
 void plugin_list_add(compositor_t *server, plugin_instance_t *plugin);
 void plugin_list_remove(compositor_t *server, plugin_instance_t *plugin);
 plugin_instance_t *plugin_list_find_by_name(compositor_t *server, const char *name);
+
+bool load_plugins_from_dir(compositor_t *server, struct fde_config *config);

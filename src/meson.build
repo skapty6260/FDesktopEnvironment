@@ -67,3 +67,11 @@ executable(
     dependencies: deps,
     install: true 
 )
+
+test_plugin = executable('test-plugin',
+                         'test-plugin.c',
+                         include_directories: [include_directories('..')],  # Для fde/utils, если нужно (опционально)
+                         dependencies: [dbus],
+                         install: false,  # Не устанавливать; для теста
+                         install_dir: '/home/dietcokelover/.config/fde/plugins',  # Опционально: путь установки
+                         c_args: ['-g', '-O0', '-Wall'])  # Отладка, как в gcc
