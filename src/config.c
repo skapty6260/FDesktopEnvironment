@@ -119,7 +119,7 @@ bool read_config(FILE *file, struct fde_config *config) {
                 if (!config->plugins->dir && config->validating) {
                     fde_log(FDE_ERROR, "Line %d: Failed to parse dir: %s", line_num, value);
                 } else {
-                    fde_log(FDE_DEBUG, "Parsed plugins.dir: %s", config->plugins->dir);
+                    fde_log(FDE_DEBUG, "plugins.dir: %s", config->plugins->dir);
                 }
             } else if (config->validating) {
                 fde_log(FDE_INFO, "Line %d: Unknown key in [plugins]: %s", line_num, key);
@@ -129,7 +129,7 @@ bool read_config(FILE *file, struct fde_config *config) {
             if (strcmp(key, "enabled") == 0) {
                 config->hr->enabled = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0 ||
                                        strcmp(value, "yes") == 0 || strcmp(value, "on") == 0);
-                fde_log(FDE_DEBUG, "Parsed hotreload.enabled: %s", config->hr->enabled ? "true" : "false");
+                fde_log(FDE_DEBUG, "hotreload.enabled: %s", config->hr->enabled ? "true" : "false");
             } else if (strcmp(key, "scan_interval") == 0) {
                 config->hr->scan_interval = atoi(value);
                 if (config->hr->scan_interval <= 0) {
@@ -138,7 +138,7 @@ bool read_config(FILE *file, struct fde_config *config) {
                         fde_log(FDE_INFO, "Line %d: Invalid scan_interval '%s'; using default 5", line_num, value);
                     }
                 } else {
-                    fde_log(FDE_DEBUG, "Parsed hotreload.scan_interval: %d", config->hr->scan_interval);
+                    fde_log(FDE_DEBUG, "hotreload.scan_interval: %d", config->hr->scan_interval);
                 }
             } else if (config->validating) {
                 fde_log(FDE_INFO, "Line %d: Unknown key in [hotreload]: %s", line_num, key);

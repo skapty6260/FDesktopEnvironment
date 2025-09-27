@@ -2,7 +2,6 @@
 // Ключевые моменты - Стркутуры для модулей взаимодействия
 // Реализация создания композитора и инициализации модульной структуры
 
-#include "fde/compositor.h"
 #include <getopt.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -14,7 +13,9 @@
 #include <fde/compositor.h>
 #include <fde/plugin-system.h>
 #include <fde/config.h>
+#include <fde/dbus.h>
 
+#include <wayland-server.h>
 #include <wlr/util/log.h>
 #include <wlr/version.h>
 
@@ -178,18 +179,57 @@ int main(int argc, char *argv[]) {
         goto shutdown;
     }
 
-    if (config->plugins->dir == NULL) {
-        fde_log(FDE_INFO, "No plugins directory specified in config. Skip plugins.");
-    } else {
-        fde_log(FDE_INFO, "Loading plugins from directory %s", config->plugins->dir);
-        scan_and_load_plugins(server, config->plugins->dir);
-        fde_log(FDE_INFO, "Plugins loaded.");
+    if (!comp_init(server)) {
+        return 1;
     }
 
-    // Run compositor
+    if (!comp_start(server)) {
+        terminate(EXIT_FAILURE);
+        goto shutdown;
+    }
+
+    // Start ipc and plugins
+    if (!init_dbus(server)) {
+        fde_log(FDE_ERROR, "Failed to init D-Bus");
+        terminate(-1); 
+        goto shutdown;
+    }
+
+    int dbus_fd = -1;
+    dbus_bool_t fd_result = dbus_connection_get_unix_fd(server->dbus_conn, &dbus_fd);
+    if (!fd_result || dbus_fd < 0) {
+        fde_log(FDE_ERROR, "Failed to get D-Bus fd: result=%d, fd=%d", fd_result, dbus_fd);
+        cleanup_dbus(server);
+        return -1;  // Или обработайте gracefully (e.g., без IPC)
+    }
+    fde_log(FDE_DEBUG, "D-Bus fd obtained: %d", dbus_fd);
+    // Добавление fd в Wayland event loop
+    struct wl_event_loop *loop = wl_display_get_event_loop(server->wl_display);  // Или server->wl_event_loop, если сохранили
+    server->dbus_source = wl_event_loop_add_fd(  // Добавьте поле wl_event_source *dbus_source в compositor_t
+        loop,
+        dbus_fd,  // Теперь fd готов (int, не указатель)
+        WL_EVENT_READABLE | WL_EVENT_WRITABLE | WL_EVENT_HANGUP | WL_EVENT_ERROR,  // Полная маска для robustness
+        dbus_fd_handler,  // Ваш callback из предыдущего сообщения
+        server  // user_data
+    );
+    if (!server->dbus_source) {
+        fde_log(FDE_ERROR, "Failed to add D-Bus fd (%d) to event loop", dbus_fd);
+        cleanup_dbus(server);
+        return -1;
+    }
+    fde_log(FDE_INFO, "D-Bus fd (%d) added to Wayland event loop", dbus_fd);
+
+    fde_log(FDE_INFO, "Starting FDE compositor...");
+    wl_display_run(server->wl_display);
 
 shutdown:
     fde_log(FDE_INFO, "Shutting down fde");
+
+    wl_event_source_remove(server->dbus_source);
+    cleanup_dbus(server);
+    // cleanup_compositor(server);  // Ваша функция: wl_display_destroy, etc.
+    free(server);
+
     if (config) {
         free(config_path);
         free_config(config);

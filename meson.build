@@ -67,8 +67,7 @@ wayland_cursor = dependency('wayland-cursor')
 wayland_protos = dependency('wayland-protocols', version: '>=1.41', default_options: ['tests=false'])
 xkbcommon = dependency('xkbcommon', version: '>=1.5.0')
 threads = dependency('threads') # for pthread_setschedparam and pthread_atfork
-m_dep = meson.get_compiler('c').find_library('m', required: true)
-dl_dep = meson.get_compiler('c').find_library('dl', required: true)
+dbus = dependency('dbus-1')
 
 conf_data = configuration_data()
 
