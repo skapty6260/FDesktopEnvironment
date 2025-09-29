@@ -48,8 +48,6 @@ static property_entry_t property_entries[] = {
 
 // Фильтр сообщений D-Bus (главный диспетчер)
 DBusHandlerResult dbus_message_filter(DBusConnection *conn, DBusMessage *msg, void *user_data) {
-    fde_log(FDE_INFO, "Called DBus filter.");
-
     compositor_t *server = (compositor_t *)user_data;
     if (!server || !server->dbus_conn) {
         return DBUS_HANDLER_RESULT_NEED_MEMORY;
@@ -59,8 +57,6 @@ DBusHandlerResult dbus_message_filter(DBusConnection *conn, DBusMessage *msg, vo
     if (dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_METHOD_CALL) {
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;  // Игнорируем signals, replies, errors
     }
-
-    fde_log(FDE_INFO, "D-Bus filter called with method call: %d", dbus_message_get_type(msg));
 
     const char *type_str = "unknown";
          int type = dbus_message_get_type(msg);
@@ -82,7 +78,7 @@ DBusHandlerResult dbus_message_filter(DBusConnection *conn, DBusMessage *msg, vo
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
     }
 
-    fde_log(FDE_INFO, "Received method call: %s.%s from %s", interface, method, sender ?: "unknown");
+    fde_log(FDE_DEBUG, "Received method call: %s.%s from %s", interface, method, sender ?: "unknown");
 
     // Диспетчеризация по таблице (расширяемо)
     for (int i = 0; method_entries[i].interface != NULL; ++i) {
@@ -209,7 +205,11 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
 
     fde_log(FDE_INFO, "Called register plugin");
 
-    if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &plugin_name, DBUS_TYPE_STRING, &handler_type, DBUS_TYPE_INT32, &pid_arg, DBUS_TYPE_INVALID)) {
+    if (!dbus_message_get_args(msg, &error,
+                               DBUS_TYPE_STRING, &plugin_name,
+                               DBUS_TYPE_STRING, &handler_type,
+                               DBUS_TYPE_INT32, &pid_arg,
+                               DBUS_TYPE_INVALID)) {
         fde_log(FDE_ERROR, "Invalid args in RegisterPlugin: %s", error.message);
         DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_INVALID_ARGS, error.message);
         dbus_connection_send(server->dbus_conn, reply, NULL);
@@ -220,10 +220,14 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
 
     plugin_instance_t *existing = plugin_list_find_by_name(server, plugin_name);
     if (existing) {
-        // Обновляем существующий плагин
+        // Обновляем существующий (временный) плагин
         free(existing->dbus_path);
         existing->dbus_path = malloc(64);
-        snprintf(existing->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
+        if (existing->dbus_path) {
+            snprintf(existing->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
+        } else {
+            fde_log(FDE_ERROR, "Failed to allocate dbus_path for plugin %s", plugin_name);
+        }
         existing->pid = (pid_t)pid_arg;
 
         if (strcmp(handler_type, "input") == 0) existing->supports_input = true;
@@ -244,7 +248,13 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
         new_plugin->pid = (pid_t)pid_arg;
         new_plugin->name = strdup(plugin_name);
         new_plugin->dbus_path = malloc(64);
-        snprintf(new_plugin->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
+        if (new_plugin->dbus_path) {
+            snprintf(new_plugin->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
+        } else {
+            fde_log(FDE_ERROR, "Failed to allocate dbus_path for new plugin %s", plugin_name);
+        }
+
+        fde_log(FDE_INFO, "Allocated dbus_path: %s \nfor plugin: %s,", new_plugin->dbus_path, plugin_name);
 
         if (strcmp(handler_type, "input") == 0) new_plugin->supports_input = true;
         else if (strcmp(handler_type, "rendering") == 0) new_plugin->supports_rendering = true;
@@ -255,18 +265,28 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
         fde_log(FDE_INFO, "Registered new plugin %s (%s, PID %d)", plugin_name, handler_type, new_plugin->pid);
     }
 
+    // Отправляем ответ с успехом
     DBusMessage *reply = dbus_message_new_method_return(msg);
     dbus_bool_t success = TRUE;
-
     dbus_message_append_args(reply, DBUS_TYPE_BOOLEAN, &success, DBUS_TYPE_INVALID);
     dbus_connection_send(server->dbus_conn, reply, NULL);
     dbus_message_unref(reply);
 
-    send_dbus_signal(server, "org.fde.Compositor.Core", "PluginRegistered", DBUS_TYPE_STRING, &plugin_name, DBUS_TYPE_INVALID);
+    // Отправляем сигнал о регистрации плагина
+    send_dbus_signal(
+        server,
+        "org.fde.Compositor.Core",
+        "PluginRegistered",
+        DBUS_TYPE_STRING, plugin_name,
+        DBUS_TYPE_STRING, handler_type,
+        DBUS_TYPE_INT32, pid_arg,
+        DBUS_TYPE_INVALID
+    );
 
     dbus_error_free(&error);
     return DBUS_HANDLER_RESULT_HANDLED;
 }
+
 
 // Реализация handlers (примеры; расширяйте)
 DBusHandlerResult handle_introspect(compositor_t *server, DBusMessage *msg) {
@@ -395,7 +415,7 @@ DBusHandlerResult handle_get_property(compositor_t *server, DBusMessage *msg) {
         return DBUS_HANDLER_RESULT_HANDLED;
     }
 
-    // Whitelist: Только известные свойства (безопасность)
+    // Поиск свойства в таблице
     property_entry_t *entry = NULL;
     for (int i = 0; property_entries[i].name != NULL; ++i) {
         if (strcmp(prop_name, property_entries[i].name) == 0) {
@@ -403,6 +423,7 @@ DBusHandlerResult handle_get_property(compositor_t *server, DBusMessage *msg) {
             break;
         }
     }
+
     if (!entry || !entry->getter) {
         DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_INVALID_ARGS, "Unknown or read-only property");
         dbus_connection_send(server->dbus_conn, reply, NULL);
@@ -410,39 +431,74 @@ DBusHandlerResult handle_get_property(compositor_t *server, DBusMessage *msg) {
         return DBUS_HANDLER_RESULT_HANDLED;
     }
 
-    // Вызов getter и подготовка значения
-    void *value = dbus_malloc0(1024);  // Буфер для значения (адаптируйте размер)
-    if (!value) {
-        DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_NO_MEMORY, "Out of memory");
-        dbus_connection_send(server->dbus_conn, reply, NULL);
+    // Получаем значение свойства
+    // Для простоты здесь поддерживается только int32, bool и string
+    DBusMessage *reply = dbus_message_new_method_return(msg);
+    if (!reply) {
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+    }
+
+    DBusMessageIter iter, variant_iter;
+    dbus_message_iter_init_append(reply, &iter);
+
+    if (strcmp(entry->type, "i") == 0) {
+        int int_val = 0;
+        entry->getter(server, &int_val);
+
+        // Открываем контейнер variant с сигнатурой "i"
+        if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "i", &variant_iter)) {
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
+        if (!dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_INT32, &int_val)) {
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
+        dbus_message_iter_close_container(&iter, &variant_iter);
+
+    } else if (strcmp(entry->type, "b") == 0) {
+        dbus_bool_t bool_val = FALSE;
+        entry->getter(server, &bool_val);
+
+        if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "b", &variant_iter)) {
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
+        if (!dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_BOOLEAN, &bool_val)) {
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
+        dbus_message_iter_close_container(&iter, &variant_iter);
+
+    } else if (strcmp(entry->type, "s") == 0) {
+        const char *str_val = NULL;
+        entry->getter(server, (void *)&str_val);  // Предполагается, что геттер возвращает const char*
+
+        if (!str_val) str_val = "";
+
+        if (!dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, "s", &variant_iter)) {
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
+        if (!dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &str_val)) {
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_NEED_MEMORY;
+        }
+        dbus_message_iter_close_container(&iter, &variant_iter);
+
+    } else {
+        // Не поддерживаемый тип
         dbus_message_unref(reply);
+        DBusMessage *error_reply = dbus_message_new_error(msg, DBUS_ERROR_INVALID_ARGS, "Unsupported property type");
+        dbus_connection_send(server->dbus_conn, error_reply, NULL);
+        dbus_message_unref(error_reply);
         return DBUS_HANDLER_RESULT_HANDLED;
     }
-    entry->getter(server, value);
 
-    // Ответ с значением (упрощённо для базовых типов; для array используйте iter)
-    DBusMessage *reply = dbus_message_new_method_return(msg);
-    if (strcmp(entry->type, "i") == 0) {
-        dbus_int32_t *int_val = (dbus_int32_t *)value;
-        dbus_message_append_args(reply, DBUS_TYPE_INT32, int_val, DBUS_TYPE_INVALID);
-    } else if (strcmp(entry->type, "b") == 0) {
-        dbus_bool_t *bool_val = (dbus_bool_t *)value;
-        dbus_message_append_args(reply, DBUS_TYPE_BOOLEAN, bool_val, DBUS_TYPE_INVALID);
-    } else if (strcmp(entry->type, "s") == 0) {
-        char **str_val = (char **)value;
-        dbus_message_append_args(reply, DBUS_TYPE_STRING, str_val, DBUS_TYPE_INVALID);
-    } else if (strcmp(entry->type, "as") == 0) {
-        // Для array: используйте dbus_message_iter_append_fixed_array (упрощённо)
-        char ***array_val = (char ***)value;
-        DBusMessageIter iter;
-        dbus_message_iter_init_append(reply, &iter);
-        dbus_message_iter_append_fixed_array(&iter, DBUS_TYPE_STRING, array_val, -1);  // -1 для null-terminated
-    }
+    // Отправляем ответ
     dbus_connection_send(server->dbus_conn, reply, NULL);
     dbus_message_unref(reply);
-    dbus_free(value);  // Освобождаем буфер
 
-    fde_log(FDE_DEBUG, "Returned property '%s'", prop_name);
     dbus_error_free(&error);
     return DBUS_HANDLER_RESULT_HANDLED;
 }

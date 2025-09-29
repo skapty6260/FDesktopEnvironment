@@ -20,6 +20,8 @@
 #include <wlr/util/log.h>
 #include <wlr/version.h>
 
+// TODO: Check for all plugins registration, before launch compositor
+
 static int exit_value = 0;
 static bool terminate_request = false;
 struct fde_config *config = {0};
@@ -79,28 +81,6 @@ void terminate(int exit_code) {
     exit_value = exit_code;
     // Should call shutdown event
     // wl_display_terminate(server.wl_display);
-}
-
-struct load_plugins_cb_overlap {
-    compositor_t *server;
-    struct fde_config *config;
-};
-
-static int load_plugins_timer(void *data) {
-    struct load_plugins_cb_overlap *overlap = (struct load_plugins_cb_overlap *)data;
-    fde_log(FDE_INFO, "Timer fired: Loading plugins (event loop active, ~1s after start)");
-    
-    // Загрузка плагинов
-    bool plugins_loaded = load_plugins_from_dir(overlap->server, overlap->config);
-    int num_plugins = wl_list_length(&overlap->server->plugins);
-    if (plugins_loaded && num_plugins > 0) {
-        fde_log(FDE_INFO, "Plugins loaded successfully via timer (%d plugins)", num_plugins);
-    } else {
-        fde_log(FDE_INFO, "No plugins loaded via timer (scanned OK, but %d registered)", num_plugins);
-    }
-    
-    // One-shot: Вернуть 0 для удаления source (не повторять)
-    return 0;
 }
 
 int main(int argc, char *argv[]) {
@@ -222,43 +202,32 @@ int main(int argc, char *argv[]) {
     }
 
     // Get D-Bus fd и add to loop
-     int dbus_fd = -1;
-     dbus_bool_t fd_result = dbus_connection_get_unix_fd(server->dbus_conn, &dbus_fd);
-     if (!fd_result || dbus_fd < 0) {
-         fde_log(FDE_ERROR, "Failed to get D-Bus fd: result=%d, fd=%d", fd_result, dbus_fd);
-         cleanup_dbus(server);
-         goto shutdown;
-     }
-     fde_log(FDE_DEBUG, "D-Bus fd obtained: %d", dbus_fd);
-     // Добавление fd в Wayland event loop (full mask)
-     server->dbus_source = wl_event_loop_add_fd(
-         server->wl_event_loop,
-         dbus_fd,
-         WL_EVENT_READABLE | WL_EVENT_WRITABLE | WL_EVENT_HANGUP | WL_EVENT_ERROR,
-         dbus_fd_handler,  // Из dbus.c
-         server
-     );
-     if (!server->dbus_source) {
-         fde_log(FDE_ERROR, "Failed to add D-Bus fd (%d) to event loop", dbus_fd);
-         cleanup_dbus(server);
-         goto shutdown;
-     }
-     fde_log(FDE_INFO, "D-Bus fd (%d) added to Wayland event loop", dbus_fd);
-     // Timer для delayed plugins load (NO early load!)
-     struct load_plugins_cb_overlap *overlap = calloc(1, sizeof(struct load_plugins_cb_overlap));
-     if (overlap) {
-         overlap->server = server;
-         overlap->config = config;  // Pass config
-         struct wl_event_source *plugins_timer = wl_event_loop_add_timer(server->wl_event_loop, load_plugins_timer, overlap);
-         if (plugins_timer) {
-             wl_event_source_timer_update(plugins_timer, 5000);  // Fix: timespec*
-             fde_log(FDE_DEBUG, "Plugins timer created and armed (1s delay, overlap=%p)", overlap);
-         } else {
-             fde_log(FDE_ERROR, "Failed to create plugins timer");
-             free(overlap);
-         }
-    } else {
-        fde_log(FDE_ERROR, "Failed to alloc overlap for timer");
+    int dbus_fd = -1;
+    dbus_bool_t fd_result = dbus_connection_get_unix_fd(server->dbus_conn, &dbus_fd);
+    if (!fd_result || dbus_fd < 0) {
+        fde_log(FDE_ERROR, "Failed to get D-Bus fd: result=%d, fd=%d", fd_result, dbus_fd);
+        cleanup_dbus(server);
+        goto shutdown;
+    }
+    fde_log(FDE_DEBUG, "D-Bus fd obtained: %d", dbus_fd);
+    // Добавление fd в Wayland event loop (full mask)
+    server->dbus_source = wl_event_loop_add_fd(
+        server->wl_event_loop,
+        dbus_fd,
+        WL_EVENT_READABLE | WL_EVENT_WRITABLE | WL_EVENT_HANGUP | WL_EVENT_ERROR,
+        dbus_fd_handler,  // Из dbus.c
+        server
+    );
+    if (!server->dbus_source) {
+        fde_log(FDE_ERROR, "Failed to add D-Bus fd (%d) to event loop", dbus_fd);
+        cleanup_dbus(server);
+        goto shutdown;
+    }
+    fde_log(FDE_DEBUG, "D-Bus fd (%d) added to Wayland event loop", dbus_fd);
+
+    // Loading plugins
+    if (!load_plugins_from_dir(server, config)) {
+        fde_log(FDE_ERROR, "Failed to load plugins.");
     }
   
     // RUN Compositor

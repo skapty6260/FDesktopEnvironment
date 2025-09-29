@@ -89,9 +89,8 @@ int main(int argc, char *argv[]) {
     }
 
     if (value) {
-        // GetProperty возвращает (v) — variant, нужно распаковать
         GVariant *inner = NULL;
-        g_variant_get(value, "(v)", &inner);
+        g_variant_get(value, "v", &inner);  // <-- исправлено с "(v)" на "v"
         gint32 num_plugins = 0;
         g_variant_get(inner, "i", &num_plugins);
         printf("Number of plugins: %d\n", num_plugins);
