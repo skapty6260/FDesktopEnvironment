@@ -125,7 +125,6 @@ int main(int argc, char *argv[]) {
         }
     };
 
-    // Log level
     if (debug) {
 		fde_log_init(FDE_DEBUG, terminate);
 		wlr_log_init(WLR_DEBUG, handle_wlr_log);

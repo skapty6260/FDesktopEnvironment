@@ -25,8 +25,11 @@ sources = files(
     'main.c',
     'config.c',
     'compositor.c',
-    'dbus/plugin-system.c',
+    'plugin-system.c',
     'dbus/dbus.c',
+    'dbus/config.c',
+    'dbus/core.c',
+    'dbus/plugins.c',
     'utils/log.c',
 )
 
