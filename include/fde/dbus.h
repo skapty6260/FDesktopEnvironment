@@ -14,6 +14,7 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
 DBusHandlerResult handle_get_property(compositor_t *server, DBusMessage *msg);
 DBusHandlerResult handle_set_property(compositor_t *server, DBusMessage *msg);
 DBusHandlerResult handle_inject_input(compositor_t *server, DBusMessage *msg);  // Пример для Input
+DBusHandlerResult handle_introspect(compositor_t *server, DBusMessage *msg); // Introspection XML data
 
 // Утилиты (для сигналов и т.д.)
 void send_dbus_signal(compositor_t *server, const char *interface, const char *signal_name, ...);

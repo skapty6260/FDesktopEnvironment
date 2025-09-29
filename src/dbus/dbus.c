@@ -1,4 +1,4 @@
-#include "fde/dbus.h"
+#include <fde/dbus.h>
 #include <fde/compositor.h>
 #include <fde/plugin-system.h>
 #include <fde/utils/log.h> 
@@ -19,15 +19,13 @@ typedef struct {
     method_handler_t handler;    // Функция-обработчик e.g., callback
 } method_entry_t;
 
+// TODO: refactor methods and handlers to different files for each interface (plugins, core, config)
 static method_entry_t method_entries[] = {
-    { "org.fde.Compositor.Input", "RegisterPlugin", handle_register_plugin },
-
-    // Core для базовый методов композитора и свойств
-    { "org.fde.Compositor.Input", "GetProperty", handle_get_property },
-    { "org.fde.Compositor.Input", "SetProperty", handle_set_property },
-
-    // Config | Для добавления конфигурации плагинов и работы с общим конфигом
-
+    { "org.fde.Compositor.Plugins", "RegisterPlugin", handle_register_plugin },
+    // { "org.fde.Compositor.Plugins", "UnregisterPlugin", handle_unregister_plugin },
+    { "org.fde.Compositor.Core", "GetProperty", handle_get_property },
+    { "org.fde.Compositor.Core", "SetProperty", handle_set_property },
+    { "org.fde.Compositor.Core", "Introspect", handle_introspect },
     // Конец таблицы (sentinel)
     { NULL, NULL, NULL }
 };
@@ -50,6 +48,8 @@ static property_entry_t property_entries[] = {
 
 // Фильтр сообщений D-Bus (главный диспетчер)
 DBusHandlerResult dbus_message_filter(DBusConnection *conn, DBusMessage *msg, void *user_data) {
+    fde_log(FDE_INFO, "Called DBus filter.");
+
     compositor_t *server = (compositor_t *)user_data;
     if (!server || !server->dbus_conn) {
         return DBUS_HANDLER_RESULT_NEED_MEMORY;
@@ -59,6 +59,8 @@ DBusHandlerResult dbus_message_filter(DBusConnection *conn, DBusMessage *msg, vo
     if (dbus_message_get_type(msg) != DBUS_MESSAGE_TYPE_METHOD_CALL) {
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;  // Игнорируем signals, replies, errors
     }
+
+    fde_log(FDE_INFO, "D-Bus filter called with method call: %d", dbus_message_get_type(msg));
 
     const char *type_str = "unknown";
          int type = dbus_message_get_type(msg);
@@ -76,11 +78,11 @@ DBusHandlerResult dbus_message_filter(DBusConnection *conn, DBusMessage *msg, vo
     }
 
     // Только для вашего сервиса (безопасность: игнорируем чужие интерфейсы)
-    if (strncmp(interface, "org.fde.Compositor", 19) != 0) {
+    if (strstr(interface, "org.fde.Compositor") == NULL) {
         return DBUS_HANDLER_RESULT_NOT_YET_HANDLED;
     }
 
-    fde_log(FDE_DEBUG, "Received method call: %s.%s from %s", interface, method, sender ?: "unknown");
+    fde_log(FDE_INFO, "Received method call: %s.%s from %s", interface, method, sender ?: "unknown");
 
     // Диспетчеризация по таблице (расширяемо)
     for (int i = 0; method_entries[i].interface != NULL; ++i) {
@@ -124,6 +126,19 @@ bool init_dbus(compositor_t *server) {
     server->dbus_conn = dbus_bus_get(DBUS_BUS_SESSION, &error);
     if (dbus_error_is_set(&error)) {
         fde_log(FDE_ERROR, "D-Bus connection failed: %s", error.message);
+        dbus_error_free(&error);
+        return false;
+    }
+    if (server->dbus_conn == NULL) {
+        fde_log(FDE_ERROR, "D-Bus connection is NULL");
+        return false;
+    }
+
+    const char *match_rule = "type='method_call',interface='org.fde.Compositor.Core'";
+    dbus_bus_add_match(server->dbus_conn, match_rule, &error);
+    dbus_connection_flush(server->dbus_conn);
+    if (dbus_error_is_set(&error)) {
+        fde_log(FDE_ERROR, "Failed to add match rule: %s", error.message);
         dbus_error_free(&error);
         return false;
     }
@@ -182,7 +197,8 @@ void cleanup_dbus(compositor_t *server) {
     fde_log(FDE_INFO, "D-Bus cleaned up");
 }
 
-// Реализация handlers (примеры; расширяйте)
+// TODO: refactor handlers to different files
+// Register plugin handler
 DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg) {
     DBusError error;
     dbus_error_init(&error);
@@ -190,6 +206,8 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
     const char *plugin_name = NULL;
     const char *handler_type = NULL;
     dbus_int32_t pid_arg = 0;
+
+    fde_log(FDE_INFO, "Called register plugin");
 
     if (!dbus_message_get_args(msg, &error, DBUS_TYPE_STRING, &plugin_name, DBUS_TYPE_STRING, &handler_type, DBUS_TYPE_INT32, &pid_arg, DBUS_TYPE_INVALID)) {
         fde_log(FDE_ERROR, "Invalid args in RegisterPlugin: %s", error.message);
@@ -200,35 +218,42 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
         return DBUS_HANDLER_RESULT_HANDLED;
     }
 
-    // Проверка дубликатов
-    if (plugin_list_find_by_name(server, plugin_name)) {
-        fde_log(FDE_INFO, "Plugin %s already registered", plugin_name);
-        DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_FAILED, "Already registered");
-        dbus_connection_send(server->dbus_conn, reply, NULL);
-        dbus_message_unref(reply);
-        return DBUS_HANDLER_RESULT_HANDLED;
+    plugin_instance_t *existing = plugin_list_find_by_name(server, plugin_name);
+    if (existing) {
+        // Обновляем существующий плагин
+        free(existing->dbus_path);
+        existing->dbus_path = malloc(64);
+        snprintf(existing->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
+        existing->pid = (pid_t)pid_arg;
+
+        if (strcmp(handler_type, "input") == 0) existing->supports_input = true;
+        else if (strcmp(handler_type, "rendering") == 0) existing->supports_rendering = true;
+        else if (strcmp(handler_type, "protocols") == 0) existing->supports_protocols = true;
+        else fde_log(FDE_INFO, "Unknown handler_type '%s' for %s", handler_type, plugin_name);
+
+        fde_log(FDE_INFO, "Updated existing plugin %s (%s, PID %d)", plugin_name, handler_type, existing->pid);
+    } else {
+        // Создаём новый плагин, если не найден
+        plugin_instance_t *new_plugin = calloc(1, sizeof(plugin_instance_t));
+        if (!new_plugin) {
+            DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_NO_MEMORY, "Out of memory");
+            dbus_connection_send(server->dbus_conn, reply, NULL);
+            dbus_message_unref(reply);
+            return DBUS_HANDLER_RESULT_HANDLED;
+        }
+        new_plugin->pid = (pid_t)pid_arg;
+        new_plugin->name = strdup(plugin_name);
+        new_plugin->dbus_path = malloc(64);
+        snprintf(new_plugin->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
+
+        if (strcmp(handler_type, "input") == 0) new_plugin->supports_input = true;
+        else if (strcmp(handler_type, "rendering") == 0) new_plugin->supports_rendering = true;
+        else if (strcmp(handler_type, "protocols") == 0) new_plugin->supports_protocols = true;
+        else fde_log(FDE_INFO, "Unknown handler_type '%s' for %s", handler_type, plugin_name);
+
+        plugin_list_add(server, new_plugin);
+        fde_log(FDE_INFO, "Registered new plugin %s (%s, PID %d)", plugin_name, handler_type, new_plugin->pid);
     }
-
-    plugin_instance_t *new_plugin = calloc(1, sizeof(plugin_instance_t));
-    if (!new_plugin) {
-        DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_NO_MEMORY, "Out of memory");
-        dbus_connection_send(server->dbus_conn, reply, NULL);
-        dbus_message_unref(reply);
-        return DBUS_HANDLER_RESULT_HANDLED;
-    }
-    new_plugin->pid = (pid_t)pid_arg;
-    new_plugin->name = strdup(plugin_name);
-    new_plugin->dbus_path = malloc(64);
-    snprintf(new_plugin->dbus_path, 64, "/org/fde/plugin/%s", plugin_name);
-
-    // if (strcmp(handler_type, "input") == 0) new_plugin->supports_input = true;
-    // else if (strcmp(handler_type, "rendering") == 0) new_plugin->supports_rendering = true;
-    // else if (strcmp(handler_type, "protocols") == 0) new_plugin->supports_protocols = true;
-    // else fde_log(FDE_INFO, "Unknown handler_type '%s' for %s", handler_type, plugin_name);
-    
-    wl_list_insert(&server->plugins, &new_plugin->link);
-
-    new_plugin->dbus_path = strdup(new_plugin->dbus_path);  // Если malloc, strdup для safety
 
     DBusMessage *reply = dbus_message_new_method_return(msg);
     dbus_bool_t success = TRUE;
@@ -236,11 +261,125 @@ DBusHandlerResult handle_register_plugin(compositor_t *server, DBusMessage *msg)
     dbus_message_append_args(reply, DBUS_TYPE_BOOLEAN, &success, DBUS_TYPE_INVALID);
     dbus_connection_send(server->dbus_conn, reply, NULL);
     dbus_message_unref(reply);
+
     send_dbus_signal(server, "org.fde.Compositor.Core", "PluginRegistered", DBUS_TYPE_STRING, &plugin_name, DBUS_TYPE_INVALID);
-    
-    fde_log(FDE_INFO, "Registered plugin %s (%s, PID %d)", plugin_name, handler_type, new_plugin->pid);
+
     dbus_error_free(&error);
-    
+    return DBUS_HANDLER_RESULT_HANDLED;
+}
+
+// Реализация handlers (примеры; расширяйте)
+DBusHandlerResult handle_introspect(compositor_t *server, DBusMessage *msg) {
+    if (!server || !server->dbus_conn) {
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+    }
+
+    // Проверяем, что это Introspect (no args)
+    DBusError error;
+    dbus_error_init(&error);
+    if (dbus_message_get_args(msg, &error, DBUS_TYPE_INVALID)) {  // No args expected
+        // OK
+    } else {
+        fde_log(FDE_ERROR, "Invalid args in Introspect: %s", error.message);
+        DBusMessage *reply = dbus_message_new_error(msg, DBUS_ERROR_INVALID_ARGS, error.message);
+        dbus_connection_send(server->dbus_conn, reply, NULL);
+        dbus_message_unref(reply);
+        dbus_error_free(&error);
+        return DBUS_HANDLER_RESULT_HANDLED;
+    }
+    dbus_error_free(&error);
+
+    // XML introspection data (embedded из вашего файла; escape'нут для C)
+    const char *xml_introspect = 
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+        "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n"
+        "\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n"
+        "<node name=\"/org/fde/Compositor\">\n"
+        "  <!-- Core interface: Basic methods for plugin registration and properties -->\n"
+        "  <interface name=\"org.fde.Compositor.Core\">\n"
+        "    <method name=\"RegisterPlugin\">\n"
+        "      <arg type=\"s\" name=\"plugin_name\" direction=\"in\"/>\n"
+        "      <arg type=\"s\" name=\"handler_type\" direction=\"in\"/>\n"
+        "      <arg type=\"i\" name=\"pid\" direction=\"in\"/>\n"
+        "      <arg type=\"b\" name=\"success\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "    <method name=\"GetProperty\">\n"
+        "      <arg type=\"s\" name=\"property_name\" direction=\"in\"/>\n"
+        "      <arg type=\"v\" name=\"value\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "    <method name=\"SetProperty\">\n"
+        "      <arg type=\"s\" name=\"property_name\" direction=\"in\"/>\n"
+        "      <arg type=\"v\" name=\"value\" direction=\"in\"/>\n"
+        "      <arg type=\"b\" name=\"success\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "    <signal name=\"PluginRegistered\">\n"
+        "      <arg type=\"s\" name=\"plugin_name\"/>\n"
+        "      <arg type=\"s\" name=\"handler_type\"/>\n"
+        "      <arg type=\"i\" name=\"pid\"/>\n"
+        "    </signal>\n"
+        "  </interface>\n"
+        "\n"
+        "  <interface name=\"org.fde.Compositor.Input\">\n"
+        "    <method name=\"InjectInputEvent\">\n"
+        "      <arg type=\"i\" name=\"event_type\" direction=\"in\"/>\n"
+        "      <arg type=\"s\" name=\"data\" direction=\"in\"/>\n"
+        "      <arg type=\"b\" name=\"handled\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "    <signal name=\"InputEventReceived\">\n"
+        "      <arg type=\"i\" name=\"event_type\"/>\n"
+        "      <arg type=\"s\" name=\"data\"/>\n"
+        "    </signal>\n"
+        "  </interface>\n"
+        "\n"
+        "  <interface name=\"org.fde.Compositor.Rendering\">\n"
+        "    <method name=\"RegisterRenderer\">\n"
+        "      <arg type=\"s\" name=\"plugin_name\" direction=\"in\"/>\n"
+        "      <arg type=\"s\" name=\"render_mode\" direction=\"in\"/>\n"
+        "      <arg type=\"b\" name=\"success\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "    <method name=\"UpdateScene\">\n"
+        "      <arg type=\"s\" name=\"scene_delta\" direction=\"in\"/>\n"
+        "      <arg type=\"b\" name=\"applied\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "    <signal name=\"FrameReady\">\n"
+        "      <arg type=\"i\" name=\"timestamp\"/>\n"
+        "    </signal>\n"
+        "  </interface>\n"
+        "\n"
+        "  <interface name=\"org.fde.Compositor.Protocols\">\n"
+        "    <method name=\"AddProtocol\">\n"
+        "      <arg type=\"s\" name=\"protocol_name\" direction=\"in\"/>\n"
+        "      <arg type=\"s\" name=\"impl_path\" direction=\"in\"/>\n"
+        "      <arg type=\"b\" name=\"added\" direction=\"out\"/>\n"
+        "    </method>\n"
+        "  </interface>\n"
+        "\n"
+        "  <!-- Добавьте <interface> для Clients, Scene и т.д. при расширении -->\n"
+        "</node>\n";
+
+    // Создаём reply с XML
+    DBusMessage *reply = dbus_message_new_method_return(msg);
+    if (!reply) {
+        fde_log(FDE_ERROR, "Failed to create Introspect reply (no memory)");
+        return DBUS_HANDLER_RESULT_NEED_MEMORY;
+    }
+
+    dbus_bool_t success = dbus_message_append_args(reply, DBUS_TYPE_STRING, &xml_introspect, DBUS_TYPE_INVALID);
+    if (!success) {
+        fde_log(FDE_ERROR, "Failed to append XML to Introspect reply");
+        DBusMessage *error_reply = dbus_message_new_error(msg, DBUS_ERROR_NO_MEMORY, "Failed to append XML");
+        dbus_connection_send(server->dbus_conn, error_reply, NULL);
+        dbus_message_unref(error_reply);
+        dbus_message_unref(reply);
+        return DBUS_HANDLER_RESULT_HANDLED;
+    }
+
+    // Send + flush (ensure immediate delivery)
+    dbus_connection_send(server->dbus_conn, reply, NULL);
+    dbus_connection_flush(server->dbus_conn);  // Critical: Flush для timely reply
+    dbus_message_unref(reply);
+
+    fde_log(FDE_DEBUG, "Introspect reply sent (XML length: %zu bytes)", strlen(xml_introspect));
     return DBUS_HANDLER_RESULT_HANDLED;
 }
 DBusHandlerResult handle_get_property(compositor_t *server, DBusMessage *msg) {
@@ -521,6 +660,11 @@ int dbus_fd_handler(int fd, uint32_t mask, void *data) {
     if (!server || !server->dbus_conn) {
         fde_log(FDE_DEBUG, "D-Bus handler: invalid server or conn (fd=%d)", fd);
         return 0;  // Игнорируем, если нет соединения
+    }
+
+    dbus_connection_read_write(server->dbus_conn, 0);
+    while (dbus_connection_get_dispatch_status(server->dbus_conn) == DBUS_DISPATCH_DATA_REMAINS) {
+        dbus_connection_dispatch(server->dbus_conn);
     }
 
     // WL_EVENT_READABLE: Входящие данные (читаем сообщения)

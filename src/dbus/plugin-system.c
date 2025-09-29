@@ -10,7 +10,9 @@
 #include <limits.h>    // PATH_MAX
 #include <sys/types.h> // Required for opendir and readdir
 #include <stdlib.h>
+#include <signal.h>
 
+#include <fde/dbus.h>
 #include <fde/utils/log.h>
 #include <fde/config.h>
 #include <fde/plugin-system.h>
@@ -18,9 +20,11 @@
 void plugin_list_add(compositor_t *server, plugin_instance_t *plugin) {
     wl_list_insert(&server->plugins, &plugin->link);
 }
+
 void plugin_list_remove(compositor_t *server, plugin_instance_t *plugin) {
     wl_list_remove(&plugin->link);
 }
+
 plugin_instance_t *plugin_list_find_by_name(compositor_t *server, const char *name) {
     plugin_instance_t *p;
     wl_list_for_each(p, &server->plugins, link) {
@@ -71,7 +75,7 @@ bool load_plugins_from_dir(compositor_t *server, struct fde_config *config) {
             char *argv[] = {entry->d_name, NULL};  // argv[0] = имя программы (стандарт)
             execv(path, argv);
             // Если execv вернётся (ошибка), логируем и exit
-            fprintf(stderr, "Exec failed for %s: %s\n", path, strerror(errno));  // Используем stderr, т.к. fde_log может не быть
+            fprintf(stderr, "Exec failed for %s: %s\n", path, strerror(errno));
             exit(1);
         }
 
@@ -89,6 +93,7 @@ bool load_plugins_from_dir(compositor_t *server, struct fde_config *config) {
         plugin_list_add(server, temp_plugin);
         fde_log(FDE_INFO, "Launched plugin '%s' (PID %d); waiting for D-Bus registration...", entry->d_name, pid);
         launched_count++;
+
         // Простой timeout: Ждём регистрации (проверяем, обновилось ли имя/флаги)
         bool registered = false;
         for (int t = 0; t < timeout_sec; t++) {

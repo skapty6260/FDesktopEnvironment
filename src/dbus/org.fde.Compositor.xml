@@ -2,46 +2,53 @@
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
 "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node name="/org/fde/Compositor">
-  <interface name="org.fde.Compositor.Input">
+  <interface name="org.fde.Compositor.Plugins">
     <method name="RegisterPlugin">
       <arg type="s" name="plugin_name" direction="in"/>
       <arg type="s" name="handler_type" direction="in"/>
       <arg type="i" name="pid" direction="in"/>
       <arg type="b" name="success" direction="out"/>
     </method>
-    <method name="InjectInputEvent">
-      <arg type="i" name="event_type" direction="in"/>
-      <arg type="s" name="data" direction="in"/>
-      <arg type="b" name="handled" direction="out"/>
-    </method>
-    <signal name="InputEventReceived">
-      <arg type="i" name="event_type"/>
-      <arg type="s" name="data"/>
-    </signal>
-  </interface>
-
-  <interface name="org.fde.Compositor.Rendering">
-    <method name="RegisterRenderer">
+    <method name="UnregisterPlugin">
       <arg type="s" name="plugin_name" direction="in"/>
-      <arg type="s" name="render_mode" direction="in"/>
       <arg type="b" name="success" direction="out"/>
     </method>
-    <method name="UpdateScene">
-      <arg type="s" name="scene_delta" direction="in"/>
-      <arg type="b" name="applied" direction="out"/>
-    </method>
-    <signal name="FrameReady">
-      <arg type="i" name="timestamp"/>
+    <signal name="PluginRegistered">
+      <arg type="s" name="plugin_name"/>
+      <arg type="s" name="handler_type"/>
+      <arg type="i" name="pid"/>
+    </signal>
+    <signal name="PluginUnregistered">
+      <arg type="s" name="plugin_name"/>
     </signal>
   </interface>
 
-  <interface name="org.fde.Compositor.Protocols">
-    <method name="AddProtocol">
-      <arg type="s" name="protocol_name" direction="in"/>
-      <arg type="s" name="impl_path" direction="in"/>
-      <arg type="b" name="added" direction="out"/>
+  <interface name="org.fde.Compositor.Core">
+    <method name="GetProperty">
+      <arg type="s" name="property_name" direction="in"/>
+      <arg type="v" name="value" direction="out"/>
+    </method>
+    <method name="SetProperty">
+      <arg type="s" name="property_name" direction="in"/>
+      <arg type="v" name="value" direction="in"/>
+      <arg type="b" name="success" direction="out"/>
+    </method>
+    <method name="Introspect">
+      <ard type="s" name="print" direction="out"/>
     </method>
   </interface>
 
-  <!-- Добавьте <interface> для Clients, Scene и т.д. при расширении -->
+  <interface name="org.fde.Compositor.Config">
+    <method name="GetConfigValue">
+      <arg type="s" name="key" direction="in"/>
+      <arg type="v" name="value" direction="out"/>
+    </method>
+    <method name="SetConfigValue">
+      <arg type="s" name="key" direction="in"/>
+      <arg type="v" name="value" direction="out"/>
+    </method>
+    <method name="ReloadConfig">
+      <arg type="b" name="success" direction="out"/>
+    </method>
+  </interface>
 </node>

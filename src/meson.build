@@ -13,43 +13,13 @@ deps = [
     dbus
 ]
 
-# DBUS (Plugins and IPC)
-dbus_xml = files('dbus/org.fde.Compositor.xml')
+# Generate client_code
+gdbus_codegen = find_program('gdbus-codegen', required: true)
 
-# Поиск gdbus-codegen (опционально)
-gdbus_codegen = find_program('gdbus-codegen', required: false)
-
-# Генерация C-кода (только если gdbus-codegen найден)
-generated_inc = include_directories('.')  # Для generated .h
-
-if gdbus_codegen.found() and glib.found()
-    deps += [glib]  # Добавляем glib только если используется
-    dbus_generated_c = custom_target(
-        'dbus-generated.c',
-        input: dbus_xml,
-        output: 'org.fde.Compositor-generated.c',
-        command: [
-            gdbus_codegen,
-            '--interface-prefix', 'org.fde.',
-            '--c-namespace', 'Fde',
-            '--generate-c-code', '@BASENAME@',
-            '@INPUT@'
-        ]
-    )
-
-    add_project_arguments('-DHAVE_GDBUS=1', language: 'c')
-    message('D-Bus code generation enabled with GDBus (using generated stubs)')
-else
-    dbus_generated_c = null  # Не используется, но для ясности
-    add_project_arguments('-DHAVE_GDBUS=0', language: 'c')
-    message('gdbus-codegen not found: Using raw libdbus-1 (manual D-Bus code)')
+r = run_command(gdbus_codegen, '--generate-c-code=/usr/local/share/org/fde/org.fde.Compositor', '--c-namespace=OrgFdeCompositor', 'dbus/org.fde.Compositor.xml')
+if r.returncode() != 0
+    error('Cannot generate gdbus .h and .c code from dbus .xml')
 endif
-
-# Установка XML для introspection (всегда)
-install_data(
-    dbus_xml,
-    install_dir: get_option('datadir') / 'dbus-1' / 'interfaces'
-)
 
 sources = files(
     'main.c',
@@ -57,21 +27,30 @@ sources = files(
     'compositor.c',
     'dbus/plugin-system.c',
     'dbus/dbus.c',
-    'utils/log.c'
+    'utils/log.c',
 )
+
+orgFdeCompositor_inc = include_directories('/usr/local/share/org/fde/')
 
 executable(
     'fde',
     sources + wl_protos_src,
-    include_directories: [fde_inc, generated_inc],
+    include_directories: [fde_inc, orgFdeCompositor_inc],
     dependencies: deps,
     install: true 
 )
 
 test_plugin = executable('test-plugin',
-                         'test-plugin.c',
-                         include_directories: [include_directories('..')],  # Для fde/utils, если нужно (опционально)
-                         dependencies: [dbus],
-                         install: false,  # Не устанавливать; для теста
+                         files(
+                            'test-plugin.c',
+                            '/usr/local/share/org/fde/org.fde.Compositor.c'
+                         ),
+                         include_directories: [include_directories('..'), orgFdeCompositor_inc],  # Для fde/utils, если нужно (опционально)
+                         dependencies: [
+                            dbus,
+                            dependency('gio-2.0'),
+                            dependency('glib-2.0')
+                         ],
+                         install: true,  # Не устанавливать; для теста
                          install_dir: '/home/dietcokelover/.config/fde/plugins',  # Опционально: путь установки
                          c_args: ['-g', '-O0', '-Wall'])  # Отладка, как в gcc
