@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include <fde/compositor.h>
+#include <fde/comp/compositor.h>
 
 typedef DBusHandlerResult (*method_handler_t)(compositor_t *server, DBusMessage *msg);
 

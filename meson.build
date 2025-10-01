@@ -8,7 +8,7 @@ project(
         'c_std=c11',
         'warning_level=2',
         'werror=true',
-        'wrap_mode=nodownload',
+		'wrap_mode=nodownload',
     ],
 )
 
@@ -31,23 +31,33 @@ add_project_arguments(
 cc = meson.get_compiler('c')
 
 is_freebsd = host_machine.system().startswith('freebsd')
-datadir = get_option('datadir')
-sysconfdir = get_option('sysconfdir')
-prefix = get_option('prefix')
+# datadir = get_option('datadir')
+# sysconfdir = get_option('sysconfdir')
+# prefix = get_option('prefix')
 
 if is_freebsd
 	add_project_arguments('-D_C11_SOURCE', language: 'c')
 endif
 
-# wlroots sub
 wlroots_version = ['>=0.20.0', '<0.21.0']
-subproject(
+# Subprojects
+wlroots_sp = subproject(
 	'wlroots',
 	default_options: ['examples=false'],
-	required: false,
+	required: true,
 	version: wlroots_version,
 )
-wlroots = dependency('wlroots-0.20') # fallback: 'wlroots' (TODO)
+wlroots = wlroots_sp.get_variable('wlroots')
+
+# wayland_protos_sp = subproject('wayland-protocols')
+# wayland_protos = wayland_protos_sp.get_variable('wayland_protocols_dep')
+
+# xkbcommon_sp = subproject('xkbcommon')
+# xkbcommon = xkbcommon_sp.get_variable('xkbcommon_dep')
+
+# dbus_sp = subproject('dbus')
+# dbus = dbus_sp.get_variable('dbus_dep')
+
 wlroots_features = {
 	'xwayland': false,
 	'libinput_backend': false,
@@ -69,6 +79,7 @@ xkbcommon = dependency('xkbcommon', version: '>=1.5.0')
 threads = dependency('threads') # for pthread_setschedparam and pthread_atfork
 dbus = dependency('dbus-1')
 
+# Conf_data to import meson vars into build
 conf_data = configuration_data()
 
 version = '"@0@"'.format(meson.project_version())
@@ -107,15 +118,3 @@ fde_inc = include_directories('include')
 subdir('include')
 subdir('protocols')
 subdir('src')
-
-config = configuration_data()
-config.set('datadir', join_paths(prefix, datadir))
-config.set('prefix', prefix)
-config.set('sysconfdir', join_paths(prefix, sysconfdir))
-
-configure_file(
-	configuration: config,
-	input: 'config.ini',
-	output: '@BASENAME@',
-	install_dir: join_paths(sysconfdir, 'fde')
-)

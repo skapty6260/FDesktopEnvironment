@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include <fde/utils/log.h>
-#include <fde/compositor.h>
+#include <fde/comp/compositor.h>
 #include <fde/plugin-system.h>
 #include <fde/config.h>
 #include <fde/dbus.h>

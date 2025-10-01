@@ -2,7 +2,7 @@
 
 #include <fde/dbus.h>
 #include <fde/utils/log.h>
-#include <fde/compositor.h>
+#include <fde/comp/compositor.h>
 #include <fde/plugin-system.h>
 
 #define PLUGINS_INTERFACE "org.fde.Compositor.Plugins"

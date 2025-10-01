@@ -9,6 +9,10 @@
 #include <fde/utils/log.h>
 #include <fde/config.h>
 
+// TODO: Rework read_config to do it automatically
+// TODO: Переделать создание конфига если файл не найден в load_config. Что-то придумать с гитом или файлами
+// TODO: Сделать поддержку вложенных плагинов: основной config.ini, в котором могут быть include(path). Например отдельные конфиги для каждого плагина, отдельный для input, keybinds, windows, etc.
+
 // Helper: Trim leading/trailing spaces.
 static char *trim(char *str) {
     char *end;
@@ -213,7 +217,7 @@ bool load_config(const char *path, struct fde_config *config) {
             "# CONFIG TEMPLATE. CODE WILL AUTOMATICALLY PASTE IT IN XDG_CONFIG IF THERE IS NO config.ini INSIDE\n"
             "\n"
             "[plugins]\n"
-            "dir=~/.config/fde/plugins/ # Auto (Code uses it)\n"
+            "dir=~/.config/fde/plugins/\n"
             "\n"
             "[hotreload]\n"
             "enabled=true\n"
@@ -230,8 +234,6 @@ bool load_config(const char *path, struct fde_config *config) {
         }
     }
 
-
-
     bool config_load_success = read_config(f, config);
     fclose(f);
 
@@ -241,4 +243,3 @@ bool load_config(const char *path, struct fde_config *config) {
 
     return config->active || !config->validating || config_load_success;
 }
-

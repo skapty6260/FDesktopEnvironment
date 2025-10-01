@@ -1,6 +1,8 @@
 .directory
 .vscode
 .cache
-plugins/*/build
-plugins/*/cache
 build
+build_*
+subprojects/*
+!subprojects/packagefiles
+!subprojects/*.wrap

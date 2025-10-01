@@ -1,7 +1,7 @@
 #pragma once
 
 #include <fde/config.h>
-#include <fde/compositor.h>
+#include <fde/comp/compositor.h>
 
 #include <stdbool.h>
 #include <unistd.h>

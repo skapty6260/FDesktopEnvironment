@@ -1,5 +1,5 @@
 #include <fde/dbus.h>
-#include <fde/compositor.h>
+#include <fde/comp/compositor.h>
 #include <fde/plugin-system.h>
 #include <fde/utils/log.h> 
 #include <dbus/dbus.h>

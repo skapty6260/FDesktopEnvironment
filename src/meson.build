@@ -3,7 +3,6 @@ wayland_server = dependency('wayland-server', version: '>=1.21.0')
 xkbcommon = dependency('xkbcommon', version: '>=1.5.0')
 threads = dependency('threads')
 dbus = dependency('dbus-1')
-glib = dependency('glib-2.0')
 
 deps = [
     threads,
@@ -24,7 +23,8 @@ endif
 sources = files(
     'main.c',
     'config.c',
-    'compositor.c',
+    'compositor/compositor.c',
+    'compositor/socket.c',
     'plugin-system.c',
     'dbus/dbus.c',
     'dbus/config.c',
@@ -33,22 +33,22 @@ sources = files(
     'utils/log.c',
 )
 
-orgFdeCompositor_inc = include_directories('/usr/local/share/org/fde/')
+org_fde_compositor_inc = include_directories('/usr/local/share/org/fde/')
 
 executable(
     'fde',
     sources + wl_protos_src,
-    include_directories: [fde_inc, orgFdeCompositor_inc],
+    include_directories: [fde_inc],
     dependencies: deps,
     install: true 
 )
 
-test_plugin = executable('test-plugin',
+executable('test-plugin',
                          files(
                             'test-plugin.c',
                             '/usr/local/share/org/fde/org.fde.Compositor.c'
                          ),
-                         include_directories: [include_directories('..'), orgFdeCompositor_inc],  # Для fde/utils, если нужно (опционально)
+                         include_directories: [include_directories('..'), org_fde_compositor_inc],  # Для fde/utils, если нужно (опционально)
                          dependencies: [
                             dbus,
                             dependency('gio-2.0'),

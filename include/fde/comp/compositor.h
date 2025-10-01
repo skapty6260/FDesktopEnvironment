@@ -18,6 +18,11 @@ typedef struct compositor {
     char *dbus_service_name;
     struct wl_list plugins; // plugin_instance_t
     struct wl_event_source *dbus_source;
+
+    // CLIENT SOCKETS
+	const char *socket_name;  // Имя сокета (e.g., "wayland-0"; от wl_display_add_socket_auto).
+    char *runtime_dir;  // XDG_RUNTIME_DIR (copied from env).
+    int socket_fd;      // WAYLAND_SOCKET fd (если nested; -1 otherwise).
 } compositor_t;
 
 // Singleton
