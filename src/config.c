@@ -13,6 +13,15 @@
 // TODO: Переделать создание конфига если файл не найден в load_config. Что-то придумать с гитом или файлами
 // TODO: Сделать поддержку вложенных плагинов: основной config.ini, в котором могут быть include(path). Например отдельные конфиги для каждого плагина, отдельный для input, keybinds, windows, etc.
 
+#define DESTROY_AND_NULL(ptr, destroy_fn) do { \
+    if (ptr) { \
+        destroy_fn(ptr); \
+        ptr = NULL; \
+    } \
+} while (0)
+
+#define FREE_AND_NULL(ptr) DESTROY_AND_NULL(ptr, free)
+
 // Helper: Trim leading/trailing spaces.
 static char *trim(char *str) {
     char *end;
@@ -169,21 +178,14 @@ bool read_config(FILE *file, struct fde_config *config) {
 
 void free_config(struct fde_config *config) {
     if (!config) return;
-
-    // Free sub-structs.
     if (config->plugins) {
-        free(config->plugins->dir);
+        FREE_AND_NULL(config->plugins->dir);
         free(config->plugins);
-        config->plugins = NULL;
     }
     if (config->hr) {
-        free(config->hr);
-        config->hr = NULL;
+        free(config->hr);  // hotreload простая, без подполей
     }
-
-    // Reset top-level.
-    config->active = false;
-    config->validating = false;
+    free(config);
 
     fde_log(FDE_DEBUG, "Freed config resources");
 }

@@ -95,3 +95,32 @@ bool load_plugins_from_dir(compositor_t *server, struct fde_config *config) {
     closedir(dir);
     return launched_count > 0;
 }
+
+void plugin_instance_destroy(plugin_instance_t *plugin) {
+    if (!plugin) return;
+
+    fde_log(FDE_DEBUG, "Destroying plugin '%s' (PID %d)", plugin->name ? plugin->name : "unknown", plugin->pid);
+
+    // Graceful shutdown: SIGTERM
+    if (plugin->pid > 0) {
+        kill(plugin->pid, SIGTERM);
+        int status;
+        // Ждём завершения (blocking; если нужно non-blocking — используйте waitpid с WNOHANG + loop)
+        if (waitpid(plugin->pid, &status, 0) == -1) {
+            fde_log(FDE_INFO, "waitpid failed for plugin PID %d: %s", plugin->pid, strerror(errno));
+            // Force kill если не умер
+            kill(plugin->pid, SIGKILL);
+            waitpid(plugin->pid, &status, 0);  // Ещё раз wait
+        } else {
+            fde_log(FDE_DEBUG, "Plugin '%s' (PID %d) terminated with status %d", 
+                    plugin->name ? plugin->name : "unknown", plugin->pid, WEXITSTATUS(status));
+        }
+    }
+
+    // Free полей
+    FREE_AND_NULL(plugin->name);
+    FREE_AND_NULL(plugin->dbus_path);
+    // Другие поля, если есть (e.g., free(plugin->some_data))
+
+    free(plugin);
+}

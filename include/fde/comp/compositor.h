@@ -4,6 +4,25 @@
 #include <wayland-util.h>
 #include <wayland-server.h>
 #include <wlr/backend.h>
+#include <fde/config.h>
+
+#define DESTROY_AND_NULL(ptr, destroy_fn) do { \
+    if (ptr) { \
+        destroy_fn(ptr); \
+        ptr = NULL; \
+    } \
+} while (0)
+
+#define FREE_AND_NULL(ptr) DESTROY_AND_NULL(ptr, free)
+#define WL_LIST_DESTROY(list_head, item_type, destroy_fn) do { \
+    item_type *item, *tmp; \
+    wl_list_for_each_safe(item, tmp, list_head, link) { \
+        wl_list_remove(&item->link); \
+        if (destroy_fn) destroy_fn(item); \
+        else free(item); \
+    } \
+    wl_list_init(list_head); \
+} while (0)
 
 typedef struct compositor {
     struct wl_display *wl_display;
@@ -19,10 +38,7 @@ typedef struct compositor {
     struct wl_list plugins; // plugin_instance_t
     struct wl_event_source *dbus_source;
 
-    // CLIENT SOCKETS
-	const char *socket_name;  // Имя сокета (e.g., "wayland-0"; от wl_display_add_socket_auto).
-    char *runtime_dir;  // XDG_RUNTIME_DIR (copied from env).
-    int socket_fd;      // WAYLAND_SOCKET fd (если nested; -1 otherwise).
+    const char *socket;
 } compositor_t;
 
 // Singleton
@@ -31,4 +47,4 @@ extern compositor_t *server;
 bool comp_start(compositor_t *server);
 void comp_run(compositor_t *server);
 bool comp_init(compositor_t *server);
-void comp_destroy(compositor_t *server);
+void comp_destroy(compositor_t *server, struct fde_config *config, char *config_path);

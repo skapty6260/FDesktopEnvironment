@@ -24,13 +24,13 @@ sources = files(
     'main.c',
     'config.c',
     'compositor/compositor.c',
-    'compositor/socket.c',
     'plugin-system.c',
     'dbus/dbus.c',
     'dbus/config.c',
     'dbus/core.c',
     'dbus/plugins.c',
     'utils/log.c',
+    'utils/cli.c'
 )
 
 org_fde_compositor_inc = include_directories('/usr/local/share/org/fde/')

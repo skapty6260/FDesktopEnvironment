@@ -2,12 +2,10 @@
 // Ключевые моменты - Стркутуры для модулей взаимодействия
 // Реализация создания композитора и инициализации модульной структуры
 
-#include <getopt.h>
+#include <fde/utils/cli.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include <fde/utils/log.h>
 #include <fde/comp/compositor.h>
@@ -20,115 +18,59 @@
 #include <wlr/util/log.h>
 #include <wlr/version.h>
 
-// TODO: Check for all plugins registration, before launch compositor
+#define CALLOC_AND_CHECK(ptr, type, destroy_fn, logmsg, free_ptr) \
+    ptr = calloc(1, sizeof(type)); \
+    if (!ptr) { \
+      fde_log(FDE_ERROR, logmsg); \
+      destroy_fn; \
+      return EXIT_FAILURE; \
+    };
 
 static int exit_value = 0;
 static bool terminate_request = false;
 struct fde_config *config = {0};
 compositor_t *server = {0};
 
-const char usage[] =
-"Usage: fde [options] [command]\n"
-	"\n"
-	"  -h, --help             Show help message and quit.\n"
-	"  -c, --config <config>  Specify a config file.\n"
-	"  -C, --validate         Check the validity of the config file, then exit.\n"
-	"  -d, --debug            Enables full logging, including debug information.\n"
-	"  -v, --version          Show the version number and quit.\n"
-	"  -V, --verbose          Enables more verbose logging.\n"
-	"\n"
-;
+// static char *str_concat(const char *str1, const char *str2) {  // Helper for safe concat (malloc).
+//     if (!str1 || !str2) return NULL;
+//     size_t len1 = strlen(str1), len2 = strlen(str2);
+//     char *result = malloc(len1 + len2 + 1);
+//     if (!result) return NULL;
+//     snprintf(result, len1 + len2 + 1, "%s%s", str1, str2);
+//     return result;
+// }
 
-const struct option long_options[] = {
-    {"help", no_argument, NULL, 'h'},
-    {"version", no_argument, NULL, 'v'},
-    {"debug", no_argument, NULL, 'd'},
-    {"config", required_argument, NULL, 'c'},
-    {"validate", no_argument, NULL, 'C'},
-    {"verbose", no_argument, NULL, 'V'}
-};
-
-static char *str_concat(const char *str1, const char *str2) {  // Helper for safe concat (malloc).
-    if (!str1 || !str2) return NULL;
-    size_t len1 = strlen(str1), len2 = strlen(str2);
-    char *result = malloc(len1 + len2 + 1);
-    if (!result) return NULL;
-    snprintf(result, len1 + len2 + 1, "%s%s", str1, str2);
-    return result;
-}
-
-static char *get_xdg_config_home(void) {
-    char *xdg_config_home = getenv("XDG_CONFIG_HOME");
-    if (xdg_config_home && *xdg_config_home != '\0') {
-        fde_log(FDE_DEBUG, "Using XDG_CONFIG_HOME: %s", xdg_config_home);
-        return str_concat(xdg_config_home, "/fde/config.ini");  // Safe alloc.
-    }
-    char *home_dir = getenv("HOME");
-    if (home_dir && *home_dir != '\0') {
-        fde_log(FDE_DEBUG, "XDG_CONFIG_HOME not set. Using default: %s/.config/fde/config.ini", home_dir);
-        char *config_dir = str_concat(home_dir, "/.config/fde/");
-        if (!config_dir) return NULL;
-        char *full_path = str_concat(config_dir, "config.ini");
-        free(config_dir);
-        return full_path;
-    }
-    fde_log(FDE_ERROR, "XDG_CONFIG_HOME and HOME not set. Cannot determine config directory.");
-    return NULL;
-}
+// static char *get_xdg_config_home(void) {
+//     char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+//     if (xdg_config_home && *xdg_config_home != '\0') {
+//         fde_log(FDE_DEBUG, "Using XDG_CONFIG_HOME: %s", xdg_config_home);
+//         return str_concat(xdg_config_home, "/fde/config.ini");  // Safe alloc.
+//     }
+//     char *home_dir = getenv("HOME");
+//     if (home_dir && *home_dir != '\0') {
+//         fde_log(FDE_DEBUG, "XDG_CONFIG_HOME not set. Using default: %s/.config/fde/config.ini", home_dir);
+//         char *config_dir = str_concat(home_dir, "/.config/fde/");
+//         if (!config_dir) return NULL;
+//         char *full_path = str_concat(config_dir, "config.ini");
+//         free(config_dir);
+//         return full_path;
+//     }
+//     fde_log(FDE_ERROR, "XDG_CONFIG_HOME and HOME not set. Cannot determine config directory.");
+//     return NULL;
+// }
 
 void terminate(int exit_code) {
     terminate_request = true;
     exit_value = exit_code;
-    // Should call shutdown event
-    // wl_display_terminate(server.wl_display);
 }
 
 int main(int argc, char *argv[]) {
-    static bool verbose = false, debug = false, validate = false;  
-    char *config_path = get_xdg_config_home();
+    struct cli_args parsed_args = parse_cli_args(argc, argv);
 
-    // Args parser
-    int c;
-    while (1) {
-        int option_index = 0;
-        c = getopt_long(argc, argv, "hCdD:vVc:", long_options, &option_index);
-        
-        if (c == -1) {
-            break;
-        }
-        
-        switch (c) {
-        case 'h': // help
-            printf("%s", usage);
-            exit(EXIT_SUCCESS);
-            break;
-        case 'c': // config
-			free(config_path);
-			config_path = strdup(optarg);
-			break;
-        case 'C': // validate
-			validate = true;
-			break;
-        case 'd': // debug
-			debug = true;
-			break;
-        case 'v': // version
-			printf("fde version %s \n", FDE_VERSION);
-			exit(EXIT_SUCCESS);
-			break;
-        case 'V': // verbose
-			verbose = true;
-			break;
-        default:
-			fprintf(stderr, "%s", usage);
-			exit(EXIT_FAILURE);
-        }
-    };
-
-    if (debug) {
+    if (parsed_args.debug) {
 		fde_log_init(FDE_DEBUG, terminate);
 		wlr_log_init(WLR_DEBUG, handle_wlr_log);
-	} else if (verbose) {
+	} else if (parsed_args.verbose) {
 		fde_log_init(FDE_INFO, terminate);
 		wlr_log_init(WLR_INFO, handle_wlr_log);
 	} else {
@@ -136,71 +78,43 @@ int main(int argc, char *argv[]) {
 		wlr_log_init(WLR_ERROR, handle_wlr_log);
 	}
 
-    if (!getenv("XDG_RUNTIME_DIR")) {
-		fprintf(stderr, "XDG_RUNTIME_DIR is not set. Aborting.\n");
-        free(config_path);
-        exit(EXIT_FAILURE);
-	}
+    // if (!getenv("XDG_RUNTIME_DIR")) {
+	// 	fprintf(stderr, "XDG_RUNTIME_DIR is not set. Aborting.\n");
+    //     exit(EXIT_FAILURE);
+	// }
 
     fde_log(FDE_INFO, "FDE VERSION: " FDE_VERSION);
     fde_log(FDE_INFO, "WLROOTS VERSION: " WLR_VERSION_STR);
 
     // Config
-    config = calloc(1, sizeof(struct fde_config));
-    if (!config) {
-        fde_log(FDE_ERROR, "Cannot alloc config");
-        free(config_path);
-        return EXIT_FAILURE;
+    CALLOC_AND_CHECK(config, struct fde_config, free(parsed_args.config_path), "Failed to allocate config.", true);
+    bool config_loaded = load_config(parsed_args.config_path, config);
+    if (parsed_args.validate) {
+        return config_loaded ? EXIT_SUCCESS : EXIT_FAILURE;
     }
-
-    bool config_valid = false;
-    if (validate) {
-        config_valid = load_config(config_path, config);
-        free_config(config);
-        free(config);
-        free(config_path);
-
-        if (config_valid) {
-            printf("Config is valid.");
-            return EXIT_SUCCESS;
-        } else {
-            printf("Config is invalid.");
-            return EXIT_FAILURE;
-        }
-    }
-
-    if (!load_config(config_path, config)) {
+    if (!config_loaded) {
         fde_log(FDE_ERROR, "Failed to load config.");
         terminate(EXIT_FAILURE);
         goto shutdown;
     }
 
     // Compositor
-    server = calloc(1, sizeof(compositor_t));
-    if (!server) {
-        fde_log(FDE_ERROR, "Failed to create compositor.");
-        terminate(EXIT_FAILURE);
-        goto shutdown;
-    }
-
+    CALLOC_AND_CHECK(server, compositor_t, terminate(EXIT_FAILURE); goto shutdown, "Failed to create compositor server", false);
     if (!comp_init(server)) {
         return 1;
     }
-
     if (!comp_start(server)) {
         terminate(EXIT_FAILURE);
         goto shutdown;
     }
 
     // DBus
-    bool dbus_init_status = init_dbus(server);
-    if (!dbus_init_status) {
+    if (!init_dbus(server)) {
         fde_log(FDE_ERROR, "Failed to init D-Bus");
         terminate(-1); 
         goto shutdown;
     }
 
-    // Get D-Bus fd и add to loop
     int dbus_fd = -1;
     dbus_bool_t fd_result = dbus_connection_get_unix_fd(server->dbus_conn, &dbus_fd);
     if (!fd_result || dbus_fd < 0) {
@@ -224,27 +138,14 @@ int main(int argc, char *argv[]) {
     }
     fde_log(FDE_DEBUG, "D-Bus fd (%d) added to Wayland event loop", dbus_fd);
 
-    // Loading plugins
     if (!load_plugins_from_dir(server, config)) {
         fde_log(FDE_ERROR, "Failed to load plugins.");
     }
   
-    // RUN Compositor
-    fde_log(FDE_INFO, "Starting FDE compositor...");
-    wl_display_run(server->wl_display);
+    comp_run(server);
 
 shutdown:
     fde_log(FDE_INFO, "Shutting down fde");
-
-    wl_event_source_remove(server->dbus_source);
-    cleanup_dbus(server);
-    // cleanup_compositor(server);  // Ваша функция: wl_display_destroy, etc.
-    free(server);
-
-    if (config) {
-        free(config_path);
-        free_config(config);
-    }
-
+    comp_destroy(server, config, parsed_args.config_path);  // Всё в одном вызове!
     return exit_value;
 }
