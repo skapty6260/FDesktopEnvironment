@@ -2,50 +2,55 @@
 #include <fde/dbus.h>
 #include <fde/utils/log.h>
 #include <fde/comp/compositor.h>
+#include <fde/comp/output.h>
 
 #include <stdlib.h>
 
 #include <wayland-server.h>
+#include <wayland-util.h>
+#include <wlr/render/allocator.h>
+#include <wlr/render/wlr_renderer.h>
 #include <wlr/types/wlr_compositor.h>
 #include <wlr/types/wlr_subcompositor.h>
+#include <wlr/types/wlr_output.h>
+#include <wlr/types/wlr_xdg_output_v1.h>
+#include <wlr/types/wlr_output_layout.h>
+#include <wlr/types/wlr_data_device.h>
+#include <wlr/types/wlr_output_power_management_v1.h>
+#include <wlr/types/wlr_screencopy_v1.h>
+#include <wlr/types/wlr_primary_selection_v1.h>
+#include <wlr/types/wlr_scene.h>
+
+#define CREATE_ASSIGN_N_CHECK(assign_to, create_fn, msg) \
+    assign_to = create_fn; \
+    if (!assign_to) {\
+        fde_log(FDE_ERROR, msg); \
+        return false; \
+    };
 
 bool comp_init(compositor_t *server) {
     fde_log(FDE_DEBUG, "Initializing wayland server");
     server->wl_display = wl_display_create();
     server->wl_event_loop = wl_display_get_event_loop(server->wl_display);
 
-    server->backend = wlr_backend_autocreate(server->wl_event_loop, &server->session);
-    if (!server->backend) {
-		fde_log(FDE_ERROR, "Unable to create backend");
-		return false;
-	}
+    CREATE_ASSIGN_N_CHECK(server->backend, wlr_backend_autocreate(server->wl_event_loop, &server->session), "Unable to create backend");
+    CREATE_ASSIGN_N_CHECK(server->renderer, wlr_renderer_autocreate(server->backend), "Failed to create renderer");
+    CREATE_ASSIGN_N_CHECK(server->allocator, wlr_allocator_autocreate(server->backend, server->renderer), "Failed to create allocator");
+    CREATE_ASSIGN_N_CHECK(server->compositor, wlr_compositor_create(server->wl_display, 6, server->renderer), "Failed to create compositor");
+	
+    wlr_subcompositor_create(server->wl_display);
+    wlr_data_device_manager_create(server->wl_display);
+    wlr_screencopy_manager_v1_create(server->wl_display);
+    wlr_primary_selection_v1_device_manager_create(server->wl_display);
 
-    server->renderer = wlr_renderer_autocreate(server->backend);
-    if (!server->renderer) {
-        fde_log(FDE_ERROR, "Failed to create custom renderer");
-        return false;
-    }
+    // Create an output layout, for handling the arrangement of multiple outputs
+	server->output_layout = wlr_output_layout_create(server->wl_display);
 
-    server->compositor = wlr_compositor_create(server->wl_display, 6, server->renderer);
-    if (!server->compositor) {
-        fde_log(FDE_ERROR, "Failed to create compositor");
-        return false;
-    }
-	wlr_subcompositor_create(server->wl_display);
-    
-    server->socket = wl_display_add_socket_auto(server->wl_display);
-	if (!server->socket) {
-		wlr_backend_destroy(server->backend);
-		return 1;
-	}
+    wl_list_init(&server->outputs);
+    server->new_output.notify = server_new_output;
+    wl_signal_add(&server->backend->events.new_output, &server->new_output);
 
-    // Set the WAYLAND_DISPLAY environment variable, so that clients know how to connect
-    // to our server
-	setenv("WAYLAND_DISPLAY", server->socket, true);
-
-    // Set up env vars to encourage applications to use wayland if possible
-    setenv("QT_QPA_PLATFORM", "wayland", true);
-    setenv("MOZ_ENABLE_WAYLAND", "1", true);
+    server->scene = wlr_scene_create();
 
     return true;
 }

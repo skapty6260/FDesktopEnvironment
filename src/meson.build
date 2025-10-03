@@ -24,6 +24,7 @@ sources = files(
     'main.c',
     'config.c',
     'compositor/compositor.c',
+    'compositor/output.c',
     'plugin-system.c',
     'dbus/dbus.c',
     'dbus/config.c',

@@ -8,7 +8,7 @@ project(
         'c_std=c11',
         'warning_level=2',
         'werror=true',
-		'wrap_mode=nodownload',
+		# 'wrap_mode=nodownload',
     ],
 )
 
@@ -48,15 +48,6 @@ wlroots_sp = subproject(
 	version: wlroots_version,
 )
 wlroots = wlroots_sp.get_variable('wlroots')
-
-# wayland_protos_sp = subproject('wayland-protocols')
-# wayland_protos = wayland_protos_sp.get_variable('wayland_protocols_dep')
-
-# xkbcommon_sp = subproject('xkbcommon')
-# xkbcommon = xkbcommon_sp.get_variable('xkbcommon_dep')
-
-# dbus_sp = subproject('dbus')
-# dbus = dbus_sp.get_variable('dbus_dep')
 
 wlroots_features = {
 	'xwayland': false,

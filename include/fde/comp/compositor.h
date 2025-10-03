@@ -1,6 +1,7 @@
 #pragma once
 
 #include <dbus/dbus.h>
+#include <wayland-server-core.h>
 #include <wayland-util.h>
 #include <wayland-server.h>
 #include <wlr/backend.h>
@@ -31,6 +32,7 @@ typedef struct compositor {
     struct wlr_session *session;
 	struct wlr_compositor *compositor;
     struct wlr_renderer *renderer;
+    struct wlr_allocator *allocator;
 
     // IPC & Plugins
     DBusConnection *dbus_conn;
@@ -39,6 +41,13 @@ typedef struct compositor {
     struct wl_event_source *dbus_source;
 
     const char *socket;
+
+    struct wlr_scene *scene;
+
+    // Output
+    struct wlr_output_layout *output_layout;
+    struct wl_listener new_output;
+    struct wl_list outputs;
 } compositor_t;
 
 // Singleton
