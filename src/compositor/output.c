@@ -1,3 +1,4 @@
+#include <fde/comp/workspace.h>
 #include <fde/comp/compositor.h>
 #include <fde/comp/output.h>
 #include <fde/utils/log.h>
@@ -29,14 +30,14 @@ static void start_using_output(fde_output_t *output) {
     wl_list_insert(&server->outputs, &output->link);
 
     // Init workspaces and add scene;
-    // struct viv_workspace *current_workspace;
-    // wl_list_for_each(current_workspace, &server->workspaces, server_link) {
-    //     if (current_workspace->output == NULL) {
-    //         wlr_log(WLR_INFO, "Assigning new output workspace %s", current_workspace->name);
-    //         viv_workspace_assign_to_output(current_workspace, output);
-    //         break;
-    //     }
-    // }
+    workspace_t *current_ws;
+    wl_list_for_each(current_ws, &server->workspaces, server_link) {
+        if (current_ws->output == NULL) {
+            fde_log(FDE_INFO, "Assigning new output workspace %s", current_ws->name);
+            workspace_assign_to_output(current_ws, output);
+            break;
+        }
+    }
 
     wlr_output_layout_add_auto(server->output_layout, output->wlr_output);
 }

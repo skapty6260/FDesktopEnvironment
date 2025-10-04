@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fde/comp/workspace.h>
 #include <stdbool.h>
 #include <stdio.h>
 
@@ -17,6 +18,8 @@ struct fde_config {
 
     struct plugins *plugins;
     struct hotreload *hr;
+
+    char workspaces[MAX_NUM_WORKSPACES][MAX_WORKSPACE_NAME_LEN];
 };
 
 // Singleton

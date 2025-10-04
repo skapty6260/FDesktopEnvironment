@@ -2,6 +2,7 @@
 #include <fde/dbus.h>
 #include <fde/utils/log.h>
 #include <fde/comp/compositor.h>
+#include <fde/config.h>
 #include <fde/comp/output.h>
 
 #include <stdlib.h>
@@ -30,6 +31,10 @@
 
 bool comp_init(compositor_t *server) {
     fde_log(FDE_DEBUG, "Initializing wayland server");
+
+    // Dynamically create workspaces according to the user configuration
+    init_workspaces(&server->workspaces, config->workspaces, server);
+
     server->wl_display = wl_display_create();
     server->wl_event_loop = wl_display_get_event_loop(server->wl_display);
 

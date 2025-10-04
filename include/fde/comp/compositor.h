@@ -1,11 +1,11 @@
 #pragma once
 
+#include <fde/config.h>
 #include <dbus/dbus.h>
 #include <wayland-server-core.h>
 #include <wayland-util.h>
 #include <wayland-server.h>
 #include <wlr/backend.h>
-#include <fde/config.h>
 
 #define DESTROY_AND_NULL(ptr, destroy_fn) do { \
     if (ptr) { \
@@ -24,6 +24,8 @@
     } \
     wl_list_init(list_head); \
 } while (0)
+
+struct fde_config;
 
 typedef struct compositor {
     struct wl_display *wl_display;
@@ -48,6 +50,7 @@ typedef struct compositor {
     struct wlr_output_layout *output_layout;
     struct wl_listener new_output;
     struct wl_list outputs;
+    struct wl_list workspaces;
 } compositor_t;
 
 // Singleton
