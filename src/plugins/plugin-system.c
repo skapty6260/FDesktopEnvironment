@@ -17,6 +17,9 @@
 #include <fde/config.h>
 #include <fde/plugin-system.h>
 
+// TODO: Добавить поддержку ивентов в плагинах
+// Отправлять dbus сигналы на все подключенные плагины при каких-либо ивентах 
+
 void plugin_list_add(compositor_t *server, plugin_instance_t *plugin) {
     wl_list_insert(&server->plugins, &plugin->link);
 }

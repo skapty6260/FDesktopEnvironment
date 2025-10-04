@@ -15,7 +15,7 @@ deps = [
 # Generate client_code
 gdbus_codegen = find_program('gdbus-codegen', required: true)
 
-r = run_command(gdbus_codegen, '--generate-c-code=/usr/local/share/org/fde/org.fde.Compositor', '--c-namespace=OrgFdeCompositor', 'dbus/org.fde.Compositor.xml')
+r = run_command(gdbus_codegen, '--generate-c-code=/usr/local/share/org/fde/org.fde.Compositor', '--c-namespace=OrgFdeCompositor', 'plugins/org.fde.Compositor.xml')
 if r.returncode() != 0
     error('Cannot generate gdbus .h and .c code from dbus .xml')
 endif
@@ -26,12 +26,14 @@ sources = files(
     'compositor/compositor.c',
     'compositor/output.c',
     'compositor/workspace.c',
-    'plugin-system.c',
-    'dbus/dbus.c',
-    'dbus/config.c',
-    'dbus/core.c',
-    'dbus/plugins.c',
+    'plugins/plugin-system.c',
+    'plugins/dbus/dbus.c',
+    'plugins/dbus/config.c',
+    'plugins/dbus/core.c',
+    'plugins/dbus/plugins.c',
     'utils/log.c',
+    'input/seat.c',
+    'input/input-manager.c',
     'utils/cli.c'
 )
 

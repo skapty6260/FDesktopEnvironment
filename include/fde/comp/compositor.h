@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fde/input/seat.h>
 #include <fde/config.h>
 #include <dbus/dbus.h>
 #include <wayland-server-core.h>
@@ -26,6 +27,7 @@
 } while (0)
 
 struct fde_config;
+typedef struct fde_seat fde_seat_t;
 
 typedef struct compositor {
     struct wl_display *wl_display;
@@ -45,6 +47,22 @@ typedef struct compositor {
     const char *socket;
 
     struct wlr_scene *scene;
+
+    // Input
+    struct wl_list seats;
+    fde_seat_t *default_seat;
+    struct wl_listener new_input;
+
+    // Cursor
+    struct wlr_cursor *cursor;
+    struct wlr_xcursor_manager *cursor_mgr;
+
+    struct wl_listener cursor_button;
+    struct wl_listener cursor_motion_absolute;
+    struct wl_listener cursor_motion;
+    struct wl_listener cursor_axis;
+    struct wl_listener cursor_frame;
+    
 
     // Output
     struct wlr_output_layout *output_layout;

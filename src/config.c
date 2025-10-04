@@ -35,7 +35,7 @@ static void init_config_defaults(struct fde_config *config) {
     config->active = false;
     config->validating = true;
 
-    // Initialize plugins.dir with default string
+
     config->plugins.dir = strdup(default_conf.plugins.dir ? default_conf.plugins.dir : "~/.config/fde/plugins/");
     config->hr.enabled = default_conf.hr.enabled;
     config->hr.scan_interval = default_conf.hr.scan_interval;
@@ -134,6 +134,7 @@ bool read_config(FILE *file, struct fde_config *config) {
             }
         }
 
+        // Add special read handlers for special types
         if (!section_found) {
             if (strcmp(current_section, "workspaces") == 0) {
                 parse_workspaces_section(key, value, config, config->validating, line_num);
