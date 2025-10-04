@@ -11,7 +11,7 @@
 // static void configure_input_device(struct wlr_input_device *device, struct ) {}
 
 static void server_new_pointer(compositor_t *server, struct wlr_input_device *device) {
-    wlr_cursor_set_xcursor(server->cursor, server->cursor_mgr, "default");
+    wlr_cursor_set_xcursor(server->default_seat->cursor, server->default_seat->cursor_mgr, "default");
 }
 
 void server_new_input(struct wl_listener *listener, void *data) {

@@ -110,6 +110,7 @@ void server_new_output(struct wl_listener *listener, void *data) {
 	output->destroy.notify = output_destroy;
 	wl_signal_add(&wlr_output->events.destroy, &output->destroy);
 
+    // Узел сцены для мониторов. Внутри: workspaces->background, containers
     output->scene_output = wlr_scene_output_create(server->scene, output->wlr_output);
 
     start_using_output(output);

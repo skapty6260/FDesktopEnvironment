@@ -52,16 +52,6 @@ typedef struct compositor {
     struct wl_list seats;
     fde_seat_t *default_seat;
     struct wl_listener new_input;
-
-    // Cursor
-    struct wlr_cursor *cursor;
-    struct wlr_xcursor_manager *cursor_mgr;
-
-    struct wl_listener cursor_button;
-    struct wl_listener cursor_motion_absolute;
-    struct wl_listener cursor_motion;
-    struct wl_listener cursor_axis;
-    struct wl_listener cursor_frame;
     
 
     // Output

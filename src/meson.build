@@ -34,6 +34,7 @@ sources = files(
     'utils/log.c',
     'input/seat.c',
     'input/input-manager.c',
+    'input/cursor.c',
     'utils/cli.c'
 )
 
