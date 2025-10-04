@@ -33,7 +33,7 @@ bool comp_init(compositor_t *server) {
     fde_log(FDE_DEBUG, "Initializing wayland server");
 
     // Dynamically create workspaces according to the user configuration
-    init_workspaces(&server->workspaces, config->workspaces, server);
+    init_workspaces(&server->workspaces, config->workspaces.list, server);
 
     server->wl_display = wl_display_create();
     server->wl_event_loop = wl_display_get_event_loop(server->wl_display);

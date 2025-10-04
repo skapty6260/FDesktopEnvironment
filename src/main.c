@@ -106,7 +106,7 @@ int main(int argc, char *argv[]) {
     MINIMIZE_CHECK(!server->dbus_source, fde_log(FDE_ERROR, "Failed to add D-Bus fd (%d) to event loop", dbus_fd); goto shutdown;);
 
     fde_log(FDE_DEBUG, "D-Bus fd (%d) added to Wayland event loop", dbus_fd);
-
+    
     // Plugins
     MINIMIZE_CHECK(!load_plugins_from_dir(server, config), fde_log(FDE_ERROR, "Failed to load plugins."););
   

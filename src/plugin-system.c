@@ -35,19 +35,34 @@ plugin_instance_t *plugin_list_find_by_name(compositor_t *server, const char *na
     return NULL;
 }
 
+static char *expand_tilde(const char *path) {
+    if (!path || path[0] != '~') return strdup(path ? path : "");
+
+    const char *home = getenv("HOME");
+    if (!home) {
+        home = "/home/user";  // fallback
+    }
+    size_t len = strlen(home) + strlen(path);
+    char *full = malloc(len);
+    if (!full) return NULL;
+    snprintf(full, len, "%s%s", home, path + 1);
+    return full;
+}
+
 bool load_plugins_from_dir(compositor_t *server, struct fde_config *config) {
-    if (!server || !config || !config->plugins->dir) {
+    if (!server || !config || !config->plugins.dir) {
         fde_log(FDE_ERROR, "No config or plugins dir set");
         return false;
     }
 
-    DIR *dir = opendir(config->plugins->dir);
+    char *plugins_path = expand_tilde(config->plugins.dir);
+    DIR *dir = opendir(plugins_path);
     if (!dir) {
-        fde_log(FDE_ERROR, "Cannot open plugins dir '%s': %s", config->plugins->dir, strerror(errno));
+        fde_log(FDE_ERROR, "Cannot open plugins dir '%s': %s", plugins_path, strerror(errno));
         return false;
     }
 
-    fde_log(FDE_INFO, "Scanning plugins in '%s'", config->plugins->dir);
+    fde_log(FDE_INFO, "Scanning plugins in '%s'", plugins_path);
     struct dirent *entry;
     int launched_count = 0;
 
@@ -56,7 +71,7 @@ bool load_plugins_from_dir(compositor_t *server, struct fde_config *config) {
             continue;
 
         char path[PATH_MAX];
-        snprintf(path, sizeof(path), "%s/%s", config->plugins->dir, entry->d_name);
+        snprintf(path, sizeof(path), "%s/%s", plugins_path, entry->d_name);
 
         // Проверяем, что файл исполняемый
         if (access(path, X_OK) != 0) {

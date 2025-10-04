@@ -1,198 +1,163 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include <ctype.h>    // isspace для trim
+// #include <ctype.h>    // isspace для trim
 #include <unistd.h>   // getuid для ~
 #include <pwd.h>      // getpwuid
 #include <sys/stat.h> // Для load_config
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
 
 #include <fde/utils/log.h>
+#include <fde/utils/config_helpers.h>
 #include <fde/config.h>
 
-// TODO: Rework read_config to do it automatically
+
 // TODO: Переделать создание конфига если файл не найден в load_config. Что-то придумать с гитом или файлами
 // TODO: Сделать поддержку вложенных плагинов: основной config.ini, в котором могут быть include(path). Например отдельные конфиги для каждого плагина, отдельный для input, keybinds, windows, etc.
 
-#define DESTROY_AND_NULL(ptr, destroy_fn) do { \
-    if (ptr) { \
-        destroy_fn(ptr); \
-        ptr = NULL; \
-    } \
-} while (0)
+struct fde_config default_conf = {
+    .plugins = {
+        .dir = "~/.config/fde/plugins/"
+    },
+    .hr = {
+        .enabled = true,
+        .scan_interval = 0
+    },
+    .workspaces = {
+        .list = { "main", 2, 3, 4, 5, 6, 7, 8, 9 }
+    }
+};
 
-#define FREE_AND_NULL(ptr) DESTROY_AND_NULL(ptr, free)
+// Initialize config with defaults
+static void init_config_defaults(struct fde_config *config) {
+    config->active = false;
+    config->validating = true;
 
-// Helper: Trim leading/trailing spaces.
-static char *trim(char *str) {
-    char *end;
-    while (isspace((unsigned char)*str)) str++;
-    if (*str == 0) return str;
-    end = str + strlen(str) - 1;
-    while (end > str && isspace((unsigned char)*end)) end--;
-    end[1] = '\0';
-    return str;
+    // Initialize plugins.dir with default string
+    config->plugins.dir = strdup(default_conf.plugins.dir ? default_conf.plugins.dir : "~/.config/fde/plugins/");
+    config->hr.enabled = default_conf.hr.enabled;
+    config->hr.scan_interval = default_conf.hr.scan_interval;
+
+    // Initialize workspaces list with default names
+    for (int i = 0; i < MAX_NUM_WORKSPACES; i++) {
+        config->workspaces.list[i][0] = '\0';
+    }
+    strncpy(config->workspaces.list[0], "main", MAX_WORKSPACE_NAME_LEN - 1);
+    config->workspaces.list[0][MAX_WORKSPACE_NAME_LEN - 1] = '\0';
 }
 
-// Helper: Expand ~ to home dir (e.g., "~/.config" → "/home/user/.config").
-static char *expand_tilde(const char *path) {
-    if (!path || path[0] != '~') return strdup(path ? path : "");
-
-    const char *home = getenv("HOME");
-    if (!home) {
-        struct passwd *pw = getpwuid(getuid());
-        home = pw ? pw->pw_dir : "/home/user";  // Safe fallback.
+// Parse workspaces section (special case)
+static void parse_workspaces_section(const char *key, const char *value, struct fde_config *config, bool validating, int line_num) {
+    // For example, keys like ws1, ws2, ... or just "list" with comma separated values
+    // Here we support keys ws1..wsN for simplicity
+    if (strncmp(key, "ws", 2) == 0) {
+        int idx = atoi(key + 2) - 1;  // ws1 -> index 0
+        if (idx >= 0 && idx < MAX_NUM_WORKSPACES) {
+            strncpy(config->workspaces.list[idx], value, MAX_WORKSPACE_NAME_LEN - 1);
+            config->workspaces.list[idx][MAX_WORKSPACE_NAME_LEN - 1] = '\0';
+        } else if (validating) {
+            fprintf(stderr, "Line %d: Workspace index out of range: %s\n", line_num, key);
+        }
+    } else if (strcmp(key, "list") == 0) {
+        // Parse comma separated list
+        char *copy = strdup(value);
+        if (!copy) return;
+        char *token = strtok(copy, ",");
+        int idx = 0;
+        while (token && idx < MAX_NUM_WORKSPACES) {
+            char *trimmed = trim(token);
+            strncpy(config->workspaces.list[idx], trimmed, MAX_WORKSPACE_NAME_LEN - 1);
+            config->workspaces.list[idx][MAX_WORKSPACE_NAME_LEN - 1] = '\0';
+            token = strtok(NULL, ",");
+            idx++;
+        }
+        free(copy);
+    } else if (validating) {
+        fprintf(stderr, "Line %d: Unknown key in [workspaces]: %s\n", line_num, key);
     }
-    char *full = malloc(strlen(home) + strlen(path));
-    if (!full) return NULL;
-    snprintf(full, strlen(home) + strlen(path) + 1, "%s%s", home, path + 1);  // +1 skip ~.
-    return full;
-}
-
-// Helper: Safe malloc + log error.
-static void *safe_malloc(size_t size, const char *what) {
-    void *ptr = malloc(size);
-    if (!ptr) {
-        fde_log(FDE_ERROR, "Malloc failed for %s", what);
-    }
-    return ptr;
 }
 
 bool read_config(FILE *file, struct fde_config *config) {
     if (!file || !config) {
-        fde_log(FDE_ERROR, "Invalid args to read_config");
+        fprintf(stderr, "Invalid arguments to read_config\n");
         return false;
     }
 
-    // Init state.
-    config->validating = true;  // Strict mode (logs warnings).
-    config->active = false;     // Will set to true on success.
-
-    // Auto-allocate sub-structs if not present.
-    if (!config->plugins) {
-        config->plugins = safe_malloc(sizeof(struct plugins), "plugins struct");
-        if (!config->plugins) return false;
-        config->plugins->dir = NULL;
-    }
-    if (!config->hr) {
-        config->hr = safe_malloc(sizeof(struct hotreload), "hotreload struct");
-        if (!config->hr) return false;
-        config->hr->enabled = true;      // Default.
-        config->hr->scan_interval = 5;   // Default.
-    }
+    init_config_defaults(config);
 
     char line[512];
-    char current_section[128] = {0};  // e.g., "plugins".
-    bool has_plugins = false;
-    bool has_hotreload = false;
+    char current_section[128] = {0};
     int line_num = 0;
 
     while (fgets(line, sizeof(line), file)) {
         line_num++;
         char *l = trim(line);
 
-        // Skip empty or comment lines.
         if (*l == '\0' || *l == '#') continue;
 
-        // Section: [section] → matches struct name.
         if (*l == '[') {
             char *end = strchr(l, ']');
             if (end) {
                 *end = '\0';
-                strncpy(current_section, l + 1, sizeof(current_section) - 1);  // Skip [.
+                strncpy(current_section, l + 1, sizeof(current_section) - 1);
+                current_section[sizeof(current_section) - 1] = '\0';
                 trim(current_section);
                 continue;
             } else {
                 if (config->validating) {
-                    fde_log(FDE_INFO, "Line %d: Invalid section '%s'", line_num, l);
+                    fprintf(stderr, "Line %d: Invalid section header: %s\n", line_num, l);
                 }
                 continue;
             }
         }
 
-        // Key=value.
         char *eq = strchr(l, '=');
         if (!eq) {
             if (config->validating) {
-                fde_log(FDE_INFO, "Line %d: Invalid key=value: %s", line_num, l);
+                fprintf(stderr, "Line %d: Invalid key=value line: %s\n", line_num, l);
             }
             continue;
         }
 
-        *eq = '\0';  // Split key and value.
+        *eq = '\0';
         char *key = trim(l);
         char *value = trim(eq + 1);
 
-        // Parse based on section (case-sensitive match to struct names).
-        if (strcmp(current_section, "plugins") == 0) {
-            has_plugins = true;
-            if (strcmp(key, "dir") == 0) {
-                // Single string; expand tilde.
-                free(config->plugins->dir);  // Free previous if any.
-                config->plugins->dir = expand_tilde(value);
-                if (!config->plugins->dir && config->validating) {
-                    fde_log(FDE_ERROR, "Line %d: Failed to parse dir: %s", line_num, value);
-                } else {
-                    fde_log(FDE_DEBUG, "plugins.dir: %s", config->plugins->dir);
-                }
-            } else if (config->validating) {
-                fde_log(FDE_INFO, "Line %d: Unknown key in [plugins]: %s", line_num, key);
+        bool section_found = false;
+        for (size_t i = 0; i < sizeof(sections)/sizeof(sections[0]); i++) {
+            if (strcmp(current_section, sections[i].section_name) == 0) {
+                section_found = true;
+                parse_key_value(key, value, sections[i].keys, sections[i].num_keys, config, config->validating, line_num);
+                break;
             }
-        } else if (strcmp(current_section, "hotreload") == 0) {
-            has_hotreload = true;
-            if (strcmp(key, "enabled") == 0) {
-                config->hr->enabled = (strcmp(value, "true") == 0 || strcmp(value, "1") == 0 ||
-                                       strcmp(value, "yes") == 0 || strcmp(value, "on") == 0);
-                fde_log(FDE_DEBUG, "hotreload.enabled: %s", config->hr->enabled ? "true" : "false");
-            } else if (strcmp(key, "scan_interval") == 0) {
-                config->hr->scan_interval = atoi(value);
-                if (config->hr->scan_interval <= 0) {
-                    config->hr->scan_interval = 5;  // Clamp to default.
-                    if (config->validating) {
-                        fde_log(FDE_INFO, "Line %d: Invalid scan_interval '%s'; using default 5", line_num, value);
-                    }
-                } else {
-                    fde_log(FDE_DEBUG, "hotreload.scan_interval: %d", config->hr->scan_interval);
-                }
-            } else if (config->validating) {
-                fde_log(FDE_INFO, "Line %d: Unknown key in [hotreload]: %s", line_num, key);
+        }
+
+        if (!section_found) {
+            if (strcmp(current_section, "workspaces") == 0) {
+                parse_workspaces_section(key, value, config, config->validating, line_num);
+            } else if (config->validating && strlen(current_section) > 0) {
+                fprintf(stderr, "Line %d: Unknown section: [%s]\n", line_num, current_section);
             }
-        } else if (strlen(current_section) > 0 && config->validating) {
-            fde_log(FDE_INFO, "Line %d: Unknown section: [%s]", line_num, current_section);
         }
     }
 
-    // Validate: Log missing sections (optional; not fatal).
-    if (config->validating) {
-        if (!has_plugins) fde_log(FDE_INFO, "No [plugins] section; using defaults (dir=NULL)");
-        if (!has_hotreload) fde_log(FDE_INFO, "No [hotreload] section; using defaults");
-    }
-
-    // Success: Set active if no fatal errors (e.g., malloc fails already returned false).
     config->active = true;
-    config->validating = false;  // End strict mode.
+    config->validating = false;
 
-    fde_log(FDE_INFO, "Config parsed successfully: active=%s", config->active ? "true" : "false");
-
-    return true;  // Partial success (warnings OK).
+    return true;
 }
 
 void free_config(struct fde_config *config) {
     if (!config) return;
-    if (config->plugins) {
-        FREE_AND_NULL(config->plugins->dir);
-        free(config->plugins);
-    }
-    if (config->hr) {
-        free(config->hr);  // hotreload простая, без подполей
-    }
-    free(config);
-
-    fde_log(FDE_DEBUG, "Freed config resources");
+    free(config->plugins.dir);
+    free(config->plugins.dir);
 }
 
 bool load_config(const char *path, struct fde_config *config) {
-    if (path == NULL) {
-        fde_log(FDE_ERROR, "Unable to find a config file. Define it manually");
+    if (!path || !config) {
+        fprintf(stderr, "Invalid arguments to load_config\n");
         return false;
     }
 
@@ -206,34 +171,37 @@ bool load_config(const char *path, struct fde_config *config) {
 
     FILE *f = fopen(path, "r");
     if (!f) {
+        // TODO: Create config file from template
         // Auto-create default config.ini from template.
-        fde_log(FDE_INFO, "Config %s not found; creating default", path);
-        FILE *default_f = fopen(path, "w");
-        if (!default_f) {
-            fde_log(FDE_ERROR, "Unable to create default config at %s", path);
-            return false;
-        }
+        // fde_log(FDE_INFO, "Config %s not found; creating default", path);
+        // FILE *default_f = fopen(path, "w");
+        // if (!default_f) {
+        //     fde_log(FDE_ERROR, "Unable to create default config at %s", path);
+        //     return false;
+        // }
 
-        // Write the template (hardcoded string).
-        const char *template_str = 
-            "# CONFIG TEMPLATE. CODE WILL AUTOMATICALLY PASTE IT IN XDG_CONFIG IF THERE IS NO config.ini INSIDE\n"
-            "\n"
-            "[plugins]\n"
-            "dir=~/.config/fde/plugins/\n"
-            "\n"
-            "[hotreload]\n"
-            "enabled=true\n"
-            "scan_interval=5 # Fallback timer if no inotify. (Will be deleted after tests)\n";
-        fputs(template_str, default_f);
-        fflush(default_f);  // Ensure written.
-        fclose(default_f);
+        // // Write the template (hardcoded string).
+        // const char *template_str = 
+        //     "# CONFIG TEMPLATE. CODE WILL AUTOMATICALLY PASTE IT IN XDG_CONFIG IF THERE IS NO config.ini INSIDE\n"
+        //     "\n"
+        //     "[plugins]\n"
+        //     "dir=~/.config/fde/plugins/\n"
+        //     "\n"
+        //     "[hotreload]\n"
+        //     "enabled=true\n"
+        //     "scan_interval=5 # Fallback timer if no inotify. (Will be deleted after tests)\n";
+        // fputs(template_str, default_f);
+        // fflush(default_f);  // Ensure written.
+        // fclose(default_f);
 
-        // Retry opening the created file.
-        f = fopen(path, "r");
-        if (!f) {
-            fde_log(FDE_ERROR, "Unable to open newly created %s", path);
-            return false;
-        }
+        // // Retry opening the created file.
+        // f = fopen(path, "r");
+        // if (!f) {
+        //     fde_log(FDE_ERROR, "Unable to open newly created %s", path);
+        //     return false;
+        // }
+        fde_log(FDE_ERROR, "Unable to open config file");
+        return false;
     }
 
     bool config_load_success = read_config(f, config);
